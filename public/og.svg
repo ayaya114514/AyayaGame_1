@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630">
+  <defs>
+    <linearGradient id="bg" x1="80" y1="40" x2="1120" y2="600" gradientUnits="userSpaceOnUse"><stop stop-color="#11171b"/><stop offset="1" stop-color="#060809"/></linearGradient>
+    <linearGradient id="mint" x1="180" y1="160" x2="960" y2="500" gradientUnits="userSpaceOnUse"><stop stop-color="#b8ffd5"/><stop offset="1" stop-color="#49e4d8"/></linearGradient>
+    <filter id="glow"><feGaussianBlur stdDeviation="18" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+  </defs>
+  <rect width="1200" height="630" fill="url(#bg)"/>
+  <g opacity=".12" stroke="#8dffce"><path d="M0 90h1200M0 180h1200M0 270h1200M0 360h1200M0 450h1200M0 540h1200"/><path d="M120 0v630M240 0v630M360 0v630M480 0v630M600 0v630M720 0v630M840 0v630M960 0v630M1080 0v630"/></g>
+  <path d="M80 415C260 420 236 202 426 255s176 214 360 120 165-181 334-152" fill="none" stroke="#7affe0" stroke-width="22" stroke-linecap="round" opacity=".22" filter="url(#glow)"/>
+  <path d="M80 415C260 420 236 202 426 255s176 214 360 120 165-181 334-152" fill="none" stroke="#98ffdf" stroke-width="4" stroke-linecap="round"/>
+  <g fill="url(#mint)" filter="url(#glow)"><circle cx="252" cy="351" r="27"/><circle cx="548" cy="337" r="20"/><path d="M760 367c0-25 19-47 43-47s43 22 43 47c0 20-16 35-43 35s-43-15-43-35Z"/></g>
+  <g fill="#ff7a8d"><path d="M353 224 373 190l20 34-20 34Z"/><path d="m920 269 23-40 23 40-23 40Z"/></g>
+  <text x="80" y="110" fill="#8aa098" font-family="ui-monospace,monospace" font-size="25" letter-spacing="8">AYAYA LABS // GAME 01</text>
+  <text x="80" y="535" fill="url(#mint)" font-family="system-ui,sans-serif" font-weight="800" font-size="86" letter-spacing="-3">BREACH PROTOCOL</text>
+  <text x="84" y="586" fill="#b7c4c0" font-family="system-ui,sans-serif" font-size="28" letter-spacing="9">反 向 塔 防</text>
+</svg>
