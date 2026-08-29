@@ -248,7 +248,8 @@ button:disabled {
 
 .icon-button,
 .text-button,
-.speed-button {
+.speed-button,
+.command-button {
   min-height: 36px;
   border: 1px solid var(--line);
   border-radius: 6px;
@@ -259,7 +260,8 @@ button:disabled {
 
 .icon-button:hover,
 .text-button:hover,
-.speed-button:hover:not(:disabled) {
+.speed-button:hover:not(:disabled),
+.command-button:hover:not(:disabled) {
   border-color: var(--line-bright);
   background: rgba(113, 255, 184, 0.07);
 }
@@ -534,6 +536,73 @@ button:disabled {
   color: var(--mint);
 }
 
+.signal-heading,
+.evolution-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: 13px 0 7px;
+  font-size: 9px;
+}
+
+.signal-heading small,
+.evolution-heading small {
+  color: var(--dim);
+  font-size: 7px;
+}
+
+.signal-strip {
+  display: grid;
+  gap: 6px;
+  grid-template-columns: 1fr 1fr;
+}
+
+.signal-chip {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 7px;
+  padding: 8px;
+  border: 1px solid color-mix(in srgb, var(--signal) 24%, transparent);
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--signal) 4%, transparent);
+}
+
+.signal-chip > i {
+  width: 8px;
+  height: 8px;
+  flex: none;
+  border: 1px solid var(--signal);
+  box-shadow: 0 0 7px color-mix(in srgb, var(--signal) 55%, transparent);
+  transform: rotate(45deg);
+}
+
+.signal-chip > span {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.signal-chip strong {
+  overflow: hidden;
+  font-size: 8px;
+  font-weight: 550;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.signal-chip small {
+  color: var(--signal);
+  font-family: ui-monospace, 'SFMono-Regular', Consolas, monospace;
+  font-size: 6px;
+  letter-spacing: 0.06em;
+}
+
+.signal-chip.activated {
+  opacity: 0.42;
+}
+
 .intel-card {
   position: relative;
   margin-top: auto;
@@ -599,6 +668,15 @@ button:disabled {
   color: #8d9994;
   font-size: 9px;
   line-height: 1.6;
+}
+
+.intel-card > p.counter-hint {
+  margin: -4px 0 11px;
+  padding: 6px 7px;
+  border-left: 1px solid var(--intel-accent, var(--red));
+  color: #aebbb5;
+  background: rgba(255, 255, 255, 0.025);
+  font-size: 7px;
 }
 
 .tower-mix {
@@ -688,6 +766,45 @@ button:disabled {
   font-size: 9px;
   font-weight: 500;
   letter-spacing: 0.1em;
+}
+
+.battlefield-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.command-button {
+  display: flex;
+  min-width: 58px;
+  min-height: 27px;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  padding: 0 7px;
+  border-color: rgba(112, 217, 255, 0.34);
+  border-radius: 4px;
+  color: #8ae9ff;
+  font-family: ui-monospace, 'SFMono-Regular', Consolas, monospace;
+  line-height: 1;
+}
+
+.command-button span {
+  font-size: 8px;
+  font-weight: 700;
+}
+
+.command-button small {
+  margin-top: 3px;
+  font-size: 5px;
+  letter-spacing: 0.09em;
+}
+
+.command-button:disabled,
+.command-button.used {
+  border-color: var(--line);
+  color: var(--dim);
+  opacity: 0.54;
 }
 
 .speed-button {
@@ -875,6 +992,13 @@ button:disabled {
   box-shadow: 0 0 5px var(--red);
 }
 
+.legend-dot.signal {
+  border-radius: 0;
+  background: #70d9ff;
+  box-shadow: 0 0 5px #70d9ff;
+  transform: rotate(45deg);
+}
+
 .footer-coordinate {
   margin-left: auto;
 }
@@ -884,6 +1008,49 @@ button:disabled {
   flex-direction: column;
   gap: 7px;
   margin-top: 18px;
+}
+
+.mutation-rack {
+  display: flex;
+  min-height: 30px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 12px;
+  padding: 6px 8px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: rgba(5, 8, 9, 0.36);
+}
+
+.mutation-rack > span,
+.mutation-rack > small {
+  color: var(--dim);
+  font-family: ui-monospace, 'SFMono-Regular', Consolas, monospace;
+  font-size: 6px;
+  letter-spacing: 0.08em;
+}
+
+.mutation-rack > div {
+  display: flex;
+  min-width: 0;
+  gap: 4px;
+  overflow: hidden;
+}
+
+.mutation-rack i {
+  padding: 3px 4px;
+  border: 1px solid color-mix(in srgb, var(--mutation) 36%, transparent);
+  border-radius: 2px;
+  color: var(--mutation);
+  font-family: ui-monospace, 'SFMono-Regular', Consolas, monospace;
+  font-size: 5px;
+  font-style: normal;
+  white-space: nowrap;
+}
+
+.mutation-rack + .unit-market {
+  margin-top: 8px;
 }
 
 .unit-card {
@@ -1314,6 +1481,7 @@ kbd {
   background: rgba(3, 5, 6, 0.76);
   backdrop-filter: blur(16px);
   opacity: 0;
+  overflow-y: auto;
   transition: 220ms ease;
 }
 
@@ -1436,7 +1604,7 @@ kbd {
   margin: 26px 0 22px;
   border-top: 1px solid var(--line);
   border-bottom: 1px solid var(--line);
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(4, 1fr);
 }
 
 .briefing-grid > div {
@@ -1501,7 +1669,7 @@ kbd {
 }
 
 .summary-modal {
-  width: min(460px, 100%);
+  width: min(620px, 100%);
 }
 
 .report-icon {
@@ -1595,6 +1763,89 @@ kbd {
   line-height: 1.5;
 }
 
+.evolution-panel {
+  margin: -7px 0 18px;
+}
+
+.evolution-panel[hidden] {
+  display: none;
+}
+
+.evolution-heading {
+  margin-top: 0;
+  color: var(--mint);
+  font-family: ui-monospace, 'SFMono-Regular', Consolas, monospace;
+  letter-spacing: 0.1em;
+}
+
+.evolution-grid {
+  display: grid;
+  gap: 7px;
+  grid-template-columns: repeat(3, 1fr);
+}
+
+.evolution-grid button {
+  position: relative;
+  display: flex;
+  min-width: 0;
+  min-height: 105px;
+  align-items: flex-start;
+  padding: 11px;
+  border: 1px solid color-mix(in srgb, var(--evolution) 22%, transparent);
+  border-radius: 4px;
+  color: var(--text);
+  background:
+    linear-gradient(145deg, color-mix(in srgb, var(--evolution) 7%, transparent), transparent 58%),
+    rgba(5, 8, 9, 0.6);
+  cursor: pointer;
+  flex-direction: column;
+  text-align: left;
+  transition: 160ms ease;
+}
+
+.evolution-grid button:hover,
+.evolution-grid button.selected {
+  border-color: color-mix(in srgb, var(--evolution) 68%, transparent);
+  background-color: color-mix(in srgb, var(--evolution) 7%, transparent);
+  transform: translateY(-2px);
+}
+
+.evolution-grid button.selected::after {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  color: var(--evolution);
+  content: '◆';
+  font-size: 7px;
+}
+
+.evolution-grid button > span {
+  margin-bottom: 9px;
+  color: var(--evolution);
+  font-family: ui-monospace, 'SFMono-Regular', Consolas, monospace;
+  font-size: 6px;
+  letter-spacing: 0.08em;
+}
+
+.evolution-grid button strong {
+  margin-bottom: 5px;
+  font-size: 10px;
+}
+
+.evolution-grid button small {
+  color: var(--dim);
+  font-size: 7px;
+  line-height: 1.55;
+}
+
+.primary-modal-button:disabled {
+  border-color: var(--line);
+  color: #68716d;
+  background: #1a201d;
+  box-shadow: none;
+  cursor: not-allowed;
+}
+
 .sr-only {
   position: absolute;
   width: 1px;
@@ -1656,8 +1907,13 @@ kbd {
     grid-column: 1;
   }
 
+  .mutation-rack {
+    grid-row: 2;
+    grid-column: 1;
+  }
+
   .unit-market {
-    grid-row: 2 / span 3;
+    grid-row: 3 / span 3;
     grid-column: 1;
   }
 
@@ -1668,11 +1924,20 @@ kbd {
   }
 
   .army-panel > .queue-heading {
+    grid-row: 1;
     margin-top: 0;
   }
 
+  .queue-track {
+    grid-row: 2;
+  }
+
+  .formation-block {
+    grid-row: 3;
+  }
+
   .launch-zone {
-    grid-row: 1 / span 4;
+    grid-row: 1 / span 3;
     grid-column: 3;
   }
 

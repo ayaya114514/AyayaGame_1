@@ -1,6 +1,15 @@
 export type UnitKind = 'slime' | 'swift' | 'tank'
 export type TowerKind = 'pulse' | 'frost' | 'cannon'
 export type Formation = 'rush' | 'steady' | 'split'
+export type MutationId =
+  | 'slime_bloom'
+  | 'swift_phase'
+  | 'tank_plating'
+  | 'brood_discount'
+  | 'neural_drive'
+  | 'signal_leech'
+  | 'emp_overload'
+export type TacticalNodeKind = 'vitality' | 'haste' | 'jammer'
 
 export type Point = {
   x: number
@@ -38,14 +47,43 @@ export type AIHistory = {
   tankRatio: number
   repeatedRoute: boolean
   breaches: number
+  formation?: Formation
 }
 
 export type AIAnalysis = {
-  mode: 'balanced' | 'intercept' | 'pierce'
+  mode: 'balanced' | 'intercept' | 'pierce' | 'suppress' | 'lockdown'
   name: string
   detail: string
+  counter: string
   mix: Record<TowerKind, number>
   accent: string
+}
+
+export type MutationDefinition = {
+  id: MutationId
+  name: string
+  code: string
+  detail: string
+  accent: string
+}
+
+export type CombatModifiers = {
+  slimeBonus: number
+  swiftShield: number
+  tankHpMultiplier: number
+  tankArmorBonus: number
+  costDiscount: number
+  speedMultiplier: number
+  nodeMultiplier: number
+  breachCredit: number
+  empDuration: number
+}
+
+export type TacticalNodeBlueprint = {
+  id: number
+  kind: TacticalNodeKind
+  position: Point
+  radius: number
 }
 
 export type TowerBlueprint = {
@@ -60,6 +98,82 @@ export type SpawnEntry = {
   at: number
   kind: UnitKind
   batchId: number
+}
+
+export const MUTATION_DEFS: Record<MutationId, MutationDefinition> = {
+  slime_bloom: {
+    id: 'slime_bloom',
+    name: '分裂孢子',
+    code: 'SLIME +1',
+    detail: '每个史莱姆批次额外孵化 1 个单位。',
+    accent: '#8fffc2'
+  },
+  swift_phase: {
+    id: 'swift_phase',
+    name: '相位薄膜',
+    code: 'EVADE 01',
+    detail: '每只疾行兽免疫受到的第一次攻击。',
+    accent: '#ffe08a'
+  },
+  tank_plating: {
+    id: 'tank_plating',
+    name: '活体装甲',
+    code: 'ARMOR +',
+    detail: '铁甲兽生命提高 22%，护甲提高 10%。',
+    accent: '#a8b7ff'
+  },
+  brood_discount: {
+    id: 'brood_discount',
+    name: '高效孵化',
+    code: 'COST −06',
+    detail: '所有怪物批次的购买价格降低 6 DATA。',
+    accent: '#76f4cf'
+  },
+  neural_drive: {
+    id: 'neural_drive',
+    name: '神经增幅',
+    code: 'SPEED +09%',
+    detail: '全军速度提高 9%，战场信标效果增强 25%。',
+    accent: '#6fdcff'
+  },
+  signal_leech: {
+    id: 'signal_leech',
+    name: '数据寄生',
+    code: 'LEECH +02',
+    detail: '每次突破核心都会掠夺 2 DATA。',
+    accent: '#ff9fcb'
+  },
+  emp_overload: {
+    id: 'emp_overload',
+    name: '过载脉冲',
+    code: 'EMP +1.2S',
+    detail: '每波一次的 EMP 指令持续时间增加 1.2 秒。',
+    accent: '#8ae9ff'
+  }
+}
+
+export const TACTICAL_NODE_DEFS: Record<
+  TacticalNodeKind,
+  { name: string; code: string; detail: string; color: string }
+> = {
+  vitality: {
+    name: '再生信标',
+    code: 'HEAL',
+    detail: '首个抵达单位触发全军修复。',
+    color: '#75ffc1'
+  },
+  haste: {
+    name: '跃迁信标',
+    code: 'HASTE',
+    detail: '首个抵达单位触发短时全军加速。',
+    color: '#ffe378'
+  },
+  jammer: {
+    name: '干扰信标',
+    code: 'JAM',
+    detail: '首个抵达单位使所有防御塔离线。',
+    color: '#7bdfff'
+  }
 }
 
 export const UNIT_DEFS: Record<UnitKind, UnitDefinition> = {
@@ -181,8 +295,15 @@ export function routeSignature(points: Point[]): string {
     .join('-')
 }
 
-export function analyzeArmy(queue: ArmyBatch[], history?: AIHistory): AIAnalysis {
+export function analyzeArmy(
+  queue: ArmyBatch[],
+  history?: AIHistory,
+  formation: Formation = 'steady'
+): AIAnalysis {
   const totalUnits = queue.reduce((sum, batch) => sum + UNIT_DEFS[batch.kind].count, 0) || 1
+  const slimeUnits = queue
+    .filter((batch) => batch.kind === 'slime')
+    .reduce((sum, batch) => sum + UNIT_DEFS[batch.kind].count, 0)
   const swiftUnits = queue
     .filter((batch) => batch.kind === 'swift')
     .reduce((sum, batch) => sum + UNIT_DEFS[batch.kind].count, 0)
@@ -198,6 +319,7 @@ export function analyzeArmy(queue: ArmyBatch[], history?: AIHistory): AIAnalysis
       mode: 'intercept',
       name: '截流协议',
       detail: '侦测到高速集群，AI 正在增配迟滞塔并前移拦截线。',
+      counter: '破解：混入铁甲兽吸收迟滞火力，或改用标准波次。',
       mix: { pulse: 0.22, frost: 0.58, cannon: 0.2 },
       accent: '#70d9ff'
     }
@@ -208,16 +330,29 @@ export function analyzeArmy(queue: ArmyBatch[], history?: AIHistory): AIAnalysis
       mode: 'pierce',
       name: '破甲协议',
       detail: '重型信号升高，AI 将射界重叠并启用高伤穿甲炮。',
+      counter: '破解：用史莱姆消耗炮击冷却，避免铁甲兽单独出兵。',
       mix: { pulse: 0.22, frost: 0.16, cannon: 0.62 },
       accent: '#ffac66'
     }
   }
 
+  if (formation === 'rush' && queue.length >= 4 && slimeUnits / totalUnits >= 0.55) {
+    return {
+      mode: 'suppress',
+      name: '集群清除',
+      detail: '侦测到密集孢子信号，AI 正在用穿甲炮制造范围杀伤。',
+      counter: '破解：改为分批出兵，或让疾行兽先骗出炮击。',
+      mix: { pulse: 0.38, frost: 0.14, cannon: 0.48 },
+      accent: '#ff8d72'
+    }
+  }
+
   if (history?.repeatedRoute) {
     return {
-      mode: 'balanced',
+      mode: 'lockdown',
       name: '路径封锁',
       detail: '路线特征重复，AI 已在上次突破点建立交叉火力。',
+      counter: '破解：移动至少两个路标，争夺本轮战场信标。',
       mix: { pulse: 0.5, frost: 0.26, cannon: 0.24 },
       accent: '#ff7188'
     }
@@ -227,9 +362,64 @@ export function analyzeArmy(queue: ArmyBatch[], history?: AIHistory): AIAnalysis
     mode: 'balanced',
     name: '均衡戒备',
     detail: '威胁样本不足，AI 采用脉冲塔为主的通用防线。',
+    counter: '破解：观察射界后重新布线，不要把所有单位放在同一批次。',
     mix: { pulse: 0.52, frost: 0.28, cannon: 0.2 },
     accent: '#ff7188'
   }
+}
+
+export function modifiersFor(mutations: MutationId[]): CombatModifiers {
+  const owned = new Set(mutations)
+  return {
+    slimeBonus: owned.has('slime_bloom') ? 1 : 0,
+    swiftShield: owned.has('swift_phase') ? 1 : 0,
+    tankHpMultiplier: owned.has('tank_plating') ? 1.22 : 1,
+    tankArmorBonus: owned.has('tank_plating') ? 0.1 : 0,
+    costDiscount: owned.has('brood_discount') ? 6 : 0,
+    speedMultiplier: owned.has('neural_drive') ? 1.09 : 1,
+    nodeMultiplier: owned.has('neural_drive') ? 1.25 : 1,
+    breachCredit: owned.has('signal_leech') ? 2 : 0,
+    empDuration: 1.8 + (owned.has('emp_overload') ? 1.2 : 0)
+  }
+}
+
+export function unitDefinition(kind: UnitKind, mutations: MutationId[] = []): UnitDefinition {
+  const base = UNIT_DEFS[kind]
+  const modifiers = modifiersFor(mutations)
+  if (kind !== 'tank') return { ...base, speed: base.speed * modifiers.speedMultiplier }
+  return {
+    ...base,
+    hp: Math.round(base.hp * modifiers.tankHpMultiplier),
+    armor: clamp(base.armor + modifiers.tankArmorBonus, 0, 0.75),
+    speed: base.speed * modifiers.speedMultiplier
+  }
+}
+
+export function unitCost(kind: UnitKind, mutations: MutationId[] = []): number {
+  return Math.max(18, UNIT_DEFS[kind].cost - modifiersFor(mutations).costDiscount)
+}
+
+export function mutationOffers(round: number, owned: MutationId[]): MutationDefinition[] {
+  const ownedSet = new Set(owned)
+  const candidates = (Object.keys(MUTATION_DEFS) as MutationId[]).filter((id) => !ownedSet.has(id))
+  const random = seededRandom(round * 409 + owned.length * 97 + 13)
+  return candidates
+    .map((id) => ({ id, roll: random() }))
+    .sort((left, right) => left.roll - right.roll)
+    .slice(0, 3)
+    .map(({ id }) => MUTATION_DEFS[id])
+}
+
+export function generateTacticalNodes(round: number, seed = 31): TacticalNodeBlueprint[] {
+  const random = seededRandom(seed + round * 577)
+  const kinds: TacticalNodeKind[] = ['vitality', 'haste', 'jammer']
+  const xPositions = round % 2 === 0 ? [0.29, 0.72] : [0.36, 0.68]
+  return xPositions.map((x, index) => ({
+    id: index + 1,
+    kind: kinds[(round + index - 1) % kinds.length] ?? 'vitality',
+    position: { x, y: 0.2 + random() * 0.6 },
+    radius: 0.055
+  }))
 }
 
 function seededRandom(seed: number): () => number {
@@ -256,7 +446,7 @@ export function generateTowerBlueprints(
   seed = 1
 ): TowerBlueprint[] {
   const random = seededRandom(seed + round * 811)
-  const count = clamp(3 + Math.floor(round / 2), 3, 5)
+  const count = clamp(3 + Math.floor(round / 2) + (analysis.mode === 'lockdown' ? 1 : 0), 3, 6)
   const towers: TowerBlueprint[] = []
 
   for (let index = 0; index < count; index += 1) {
@@ -285,18 +475,24 @@ export function generateTowerBlueprints(
   return towers
 }
 
-export function buildSpawnPlan(queue: ArmyBatch[], formation: Formation): SpawnEntry[] {
+export function buildSpawnPlan(
+  queue: ArmyBatch[],
+  formation: Formation,
+  mutations: MutationId[] = []
+): SpawnEntry[] {
   const unitGap: Record<Formation, number> = { rush: 0.2, steady: 0.34, split: 0.42 }
   const batchGap: Record<Formation, number> = { rush: 0.58, steady: 1.05, split: 1.85 }
   const plan: SpawnEntry[] = []
+  const modifiers = modifiersFor(mutations)
   let cursor = 0
 
   for (const batch of queue) {
     const definition = UNIT_DEFS[batch.kind]
-    for (let index = 0; index < definition.count; index += 1) {
+    const count = definition.count + (batch.kind === 'slime' ? modifiers.slimeBonus : 0)
+    for (let index = 0; index < count; index += 1) {
       plan.push({ at: cursor + index * unitGap[formation], kind: batch.kind, batchId: batch.id })
     }
-    cursor += (definition.count - 1) * unitGap[formation] + batchGap[formation]
+    cursor += (count - 1) * unitGap[formation] + batchGap[formation]
   }
 
   return plan

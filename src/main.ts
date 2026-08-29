@@ -1,24 +1,34 @@
 import './style.css'
 import {
   DEFAULT_ROUTE,
+  MUTATION_DEFS,
+  TACTICAL_NODE_DEFS,
   TOWER_DEFS,
   UNIT_DEFS,
   analyzeArmy,
   buildSpawnPlan,
   clamp,
   compositionOf,
+  generateTacticalNodes,
   generateTowerBlueprints,
+  modifiersFor,
+  mutationOffers,
   pointOnRoute,
   routeLength,
   routeSignature,
+  unitCost,
+  unitDefinition,
   type AIAnalysis,
   type AIHistory,
   type ArmyBatch,
   type Formation,
+  type MutationDefinition,
+  type MutationId,
   type Point,
   type SpawnEntry,
   type TowerBlueprint,
   type TowerKind,
+  type TacticalNodeBlueprint,
   type UnitKind
 } from './engine'
 
@@ -31,6 +41,7 @@ type RuntimeUnit = {
   hp: number
   maxHp: number
   slowUntil: number
+  shield: number
   flash: number
   alive: boolean
 }
@@ -38,6 +49,10 @@ type RuntimeUnit = {
 type RuntimeTower = TowerBlueprint & {
   cooldown: number
   recoil: number
+}
+
+type RuntimeNode = TacticalNodeBlueprint & {
+  activated: boolean
 }
 
 type Particle = {
@@ -73,6 +88,7 @@ type WaveStats = {
   destroyed: number
   breaches: number
   coreDamage: number
+  nodes: number
 }
 
 const MAX_ROUNDS = 5
@@ -123,10 +139,13 @@ app.innerHTML = `
           <div><span>路线长度</span><strong id="route-length">1.51 km</strong></div>
           <div><span>预计威胁</span><strong id="route-risk" class="risk-medium">中等</strong></div>
         </div>
+        <div class="signal-heading"><span>战场信标</span><small>将路线接入光圈即可触发</small></div>
+        <div class="signal-strip" id="signal-strip" aria-label="本回合战场信标"></div>
         <div class="intel-card">
           <div class="intel-topline"><span>AI COUNTERMEASURE</span><span id="ai-confidence">71%</span></div>
           <div class="intel-title"><span id="ai-icon" class="intel-icon"></span><strong id="ai-name">均衡戒备</strong></div>
           <p id="ai-detail">威胁样本不足，AI 采用脉冲塔为主的通用防线。</p>
+          <p class="counter-hint" id="ai-counter">破解：观察射界后重新布线。</p>
           <div class="tower-mix" id="tower-mix" aria-label="AI 防御塔配比"></div>
         </div>
         <p class="micro-note"><span>TIP</span> 连续使用相同路线，AI 会记住你的突破点。</p>
@@ -136,7 +155,10 @@ app.innerHTML = `
         <div class="battlefield-toolbar">
           <div class="phase-pill"><i></i><span id="phase-label">PLANNING</span></div>
           <div class="battlefield-title"><span>SECTOR</span><strong>NULL GARDEN · 07</strong></div>
-          <button class="speed-button" id="speed-button" type="button" aria-label="切换战斗速度" disabled>1×</button>
+          <div class="battlefield-actions">
+            <button class="command-button" id="command-button" type="button" aria-label="释放 EMP 指令" disabled><span>EMP</span><small>READY</small></button>
+            <button class="speed-button" id="speed-button" type="button" aria-label="切换战斗速度" disabled>1×</button>
+          </div>
         </div>
         <div class="canvas-wrap">
           <canvas id="battlefield" tabindex="0" aria-label="路线战场。规划阶段可拖拽三个绿色路标，方向键可微调选中的路标。"></canvas>
@@ -148,6 +170,7 @@ app.innerHTML = `
         <div class="battlefield-footer">
           <div><span class="legend-dot friendly"></span>侵入单位</div>
           <div><span class="legend-dot hostile"></span>AI 防御塔</div>
+          <div><span class="legend-dot signal"></span>战术信标</div>
           <span class="footer-coordinate">47°13′N · SIMULATION LOCAL</span>
         </div>
       </section>
@@ -157,6 +180,7 @@ app.innerHTML = `
           <div><span class="eyebrow">02 / LOADOUT</span><h2>入侵编队</h2></div>
           <span class="budget"><i></i><strong id="budget-value">240</strong></span>
         </div>
+        <div class="mutation-rack" id="mutation-rack"><span>EVOLUTION</span><small>尚未进化</small></div>
         <div class="unit-market" id="unit-market">
           <button class="unit-card" type="button" data-unit="slime">
             <span class="unit-portrait slime"><i></i></span>
@@ -210,11 +234,12 @@ app.innerHTML = `
       <span class="modal-index">MISSION // 001</span>
       <div class="intro-emblem" aria-hidden="true"><span></span><i></i></div>
       <h1 id="intro-title">这次，你是怪物。</h1>
-      <p>防线由自适应 AI 控制。改变路线、混编单位、错开波次，在五回合内摧毁它的核心。</p>
+      <p>防线由自适应 AI 控制。争夺信标、吞噬进化、改变编队，在五回合内摧毁它的核心。</p>
       <div class="briefing-grid">
         <div><b>01</b><span><strong>设计路线</strong><small>拖动三个绿色路标</small></span></div>
         <div><b>02</b><span><strong>编排军团</strong><small>购买并组合三个兵种</small></span></div>
         <div><b>03</b><span><strong>骗过 AI</strong><small>每回合改变你的打法</small></span></div>
+        <div><b>04</b><span><strong>吞噬进化</strong><small>每回合三选一强化军团</small></span></div>
       </div>
       <button class="primary-modal-button" id="enter-button" type="button">进入战场 <span>→</span></button>
       <small class="modal-footnote">建议开启音效 · 每局约 4 分钟</small>
@@ -234,7 +259,11 @@ app.innerHTML = `
         <div><span>情报奖励</span><strong id="stat-reward">+0</strong></div>
       </div>
       <div class="adaptation-note"><span>AI ADAPTATION</span><strong id="next-ai-name">截流协议</strong><p id="next-ai-copy">正在分析下一轮防守策略。</p></div>
-      <button class="primary-modal-button" id="continue-button" type="button">准备下一回合 <span>→</span></button>
+      <div class="evolution-panel" id="evolution-panel">
+        <div class="evolution-heading"><span>CHOOSE EVOLUTION</span><small>选择一项永久进化</small></div>
+        <div class="evolution-grid" id="evolution-grid"></div>
+      </div>
+      <button class="primary-modal-button" id="continue-button" type="button" disabled>先选择进化 <span>→</span></button>
     </section>
   </div>
 
@@ -262,8 +291,11 @@ const ui = {
   aiConfidence: byId('ai-confidence'),
   aiName: byId('ai-name'),
   aiDetail: byId('ai-detail'),
+  aiCounter: byId('ai-counter'),
   aiIcon: byId('ai-icon'),
   towerMix: byId('tower-mix'),
+  signalStrip: byId('signal-strip'),
+  mutationRack: byId('mutation-rack'),
   queue: byId('queue-track'),
   market: byId('unit-market'),
   formationCopy: byId('formation-copy'),
@@ -274,10 +306,13 @@ const ui = {
   phase: byId('phase-label'),
   mapHint: byId('map-hint'),
   speed: byId<HTMLButtonElement>('speed-button'),
+  command: byId<HTMLButtonElement>('command-button'),
   waveProgress: byId('wave-progress'),
   combatToast: byId('combat-toast'),
   intro: byId('intro-modal'),
   summary: byId('summary-modal'),
+  evolutionPanel: byId('evolution-panel'),
+  evolutionGrid: byId('evolution-grid'),
   continueButton: byId<HTMLButtonElement>('continue-button'),
   highScore: byId('high-score'),
   announcer: byId('announcer'),
@@ -297,20 +332,30 @@ let route = DEFAULT_ROUTE.map((point) => ({ ...point }))
 let defenseRoute = DEFAULT_ROUTE.map((point) => ({ ...point }))
 let lastRouteSignature = ''
 let history: AIHistory | undefined
-let analysis: AIAnalysis = analyzeArmy(queue)
+let analysis: AIAnalysis = analyzeArmy(queue, history, formation)
 let towers: RuntimeTower[] = []
+let nodes: RuntimeNode[] = generateTacticalNodes(round).map((node) => ({
+  ...node,
+  activated: false
+}))
 let units: RuntimeUnit[] = []
 let spawnPlan: SpawnEntry[] = []
 let spawnIndex = 0
 let nextUnitId = 1
 let waveElapsed = 0
 let speed = 1
+let ownedMutations: MutationId[] = []
+let pendingMutation: MutationId | null = null
+let currentMutationOffers: MutationDefinition[] = []
+let commandUsed = false
+let jammedUntil = 0
+let globalBoostUntil = 0
 let selectedWaypoint = 2
 let draggedWaypoint: number | null = null
 let particles: Particle[] = []
 let shots: Shot[] = []
 let labels: FloatLabel[] = []
-let waveStats: WaveStats = { deployed: 0, destroyed: 0, breaches: 0, coreDamage: 0 }
+let waveStats: WaveStats = { deployed: 0, destroyed: 0, breaches: 0, coreDamage: 0, nodes: 0 }
 let lastTimestamp = performance.now()
 let canvasWidth = 0
 let canvasHeight = 0
@@ -360,7 +405,7 @@ function currentConfidence(): number {
 }
 
 function rebuildDefense(): void {
-  analysis = analyzeArmy(queue, history)
+  analysis = analyzeArmy(queue, history, formation)
   const signatureSeed = routeSignature(defenseRoute)
     .split('-')
     .reduce((sum, value) => sum * 17 + Number(value), 19)
@@ -377,6 +422,7 @@ function formatScore(value: number): string {
 
 function updateUI(): void {
   const isPlanning = phase === 'planning'
+  const modifiers = modifiersFor(ownedMutations)
   const length = routeLength(route)
   const exposureSamples = Array.from({ length: 60 }, (_, index) => pointOnRoute(route, index / 59))
   const exposure =
@@ -400,6 +446,7 @@ function updateUI(): void {
   ui.aiConfidence.textContent = `${currentConfidence()}%`
   ui.aiName.textContent = analysis.name
   ui.aiDetail.textContent = analysis.detail
+  ui.aiCounter.textContent = analysis.counter
   ui.aiIcon.style.setProperty('--intel-accent', analysis.accent)
   ui.towerMix.innerHTML = (['pulse', 'frost', 'cannon'] as TowerKind[])
     .map((kind) => {
@@ -408,6 +455,24 @@ function updateUI(): void {
     })
     .join('')
 
+  ui.signalStrip.innerHTML = nodes
+    .map((node) => {
+      const definition = TACTICAL_NODE_DEFS[node.kind]
+      return `<div class="signal-chip ${node.activated ? 'activated' : ''}" style="--signal:${definition.color}">
+        <i></i><span><strong>${definition.name}</strong><small>${node.activated ? '已吸收' : definition.code}</small></span>
+      </div>`
+    })
+    .join('')
+
+  ui.mutationRack.innerHTML = ownedMutations.length
+    ? `<span>EVOLUTION ${ownedMutations.length.toString().padStart(2, '0')}</span><div>${ownedMutations
+        .map((id) => {
+          const mutation = MUTATION_DEFS[id]
+          return `<i style="--mutation:${mutation.accent}" title="${mutation.name} · ${mutation.detail}">${mutation.code}</i>`
+        })
+        .join('')}</div>`
+    : '<span>EVOLUTION</span><small>尚未进化</small>'
+
   ui.queue.innerHTML = queue.length
     ? queue
         .map(
@@ -415,7 +480,7 @@ function updateUI(): void {
             batch,
             index
           ) => `<button type="button" class="queue-token ${batch.kind}" data-remove-batch="${batch.id}" aria-label="撤回第 ${index + 1} 批 ${UNIT_DEFS[batch.kind].name}">
-              <span>${(index + 1).toString().padStart(2, '0')}</span><i></i><strong>${UNIT_DEFS[batch.kind].count}</strong>
+              <span>${(index + 1).toString().padStart(2, '0')}</span><i></i><strong>${UNIT_DEFS[batch.kind].count + (batch.kind === 'slime' ? modifiers.slimeBonus : 0)}</strong>
             </button>`
         )
         .join('')
@@ -423,7 +488,23 @@ function updateUI(): void {
 
   ui.market.querySelectorAll<HTMLButtonElement>('[data-unit]').forEach((button) => {
     const kind = button.dataset.unit as UnitKind
-    button.disabled = !isPlanning || credits < UNIT_DEFS[kind].cost || queue.length >= 9
+    const definition = unitDefinition(kind, ownedMutations)
+    const cost = unitCost(kind, ownedMutations)
+    const count = UNIT_DEFS[kind].count + (kind === 'slime' ? modifiers.slimeBonus : 0)
+    const countLabel = button.querySelector('em')
+    const statLabel = button.querySelector('small')
+    const costLabel = button.querySelector('.unit-cost')
+    if (countLabel) countLabel.textContent = `×${count}`
+    if (statLabel) {
+      statLabel.textContent =
+        kind === 'tank'
+          ? `吸收火力 · ARM ${Math.round(definition.armor * 100)}`
+          : kind === 'swift'
+            ? `高速突进 · SPD ${Math.round(definition.speed * 1000)}`
+            : `数量压制 · HP ${definition.hp}`
+    }
+    if (costLabel) costLabel.textContent = cost.toString()
+    button.disabled = !isPlanning || credits < cost || queue.length >= 9
   })
 
   document.querySelectorAll<HTMLButtonElement>('[data-route]').forEach((button) => {
@@ -433,7 +514,11 @@ function updateUI(): void {
     button.disabled = !isPlanning
   })
 
-  const totalUnits = queue.reduce((sum, batch) => sum + UNIT_DEFS[batch.kind].count, 0)
+  const totalUnits = queue.reduce(
+    (sum, batch) =>
+      sum + UNIT_DEFS[batch.kind].count + (batch.kind === 'slime' ? modifiers.slimeBonus : 0),
+    0
+  )
   ui.launch.disabled = !isPlanning || queue.length === 0
   ui.readyLight.classList.toggle('ready', queue.length > 0 && isPlanning)
   ui.readyTitle.textContent = queue.length ? `${totalUnits} 个单位就绪` : '等待编队'
@@ -444,6 +529,11 @@ function updateUI(): void {
     phase === 'battle' ? 'BREACHING' : phase === 'planning' ? 'PLANNING' : 'ANALYSIS'
   ui.mapHint.classList.toggle('hidden', !isPlanning)
   ui.speed.disabled = phase !== 'battle'
+  ui.command.disabled = phase !== 'battle' || commandUsed
+  ui.command.classList.toggle('used', commandUsed)
+  ui.command.innerHTML = commandUsed
+    ? '<span>EMP</span><small>SPENT</small>'
+    : '<span>EMP</span><small>READY</small>'
   ui.waveProgress.toggleAttribute('hidden', phase !== 'battle')
   ui.highScore.textContent = `BEST ${formatScore(bestScore)}`
 }
@@ -477,8 +567,9 @@ function setRoutePreset(name: string): void {
 }
 
 function addBatch(kind: UnitKind): void {
-  if (phase !== 'planning' || credits < UNIT_DEFS[kind].cost || queue.length >= 9) return
-  credits -= UNIT_DEFS[kind].cost
+  const cost = unitCost(kind, ownedMutations)
+  if (phase !== 'planning' || credits < cost || queue.length >= 9) return
+  credits -= cost
   queue.push({ id: nextBatchId, kind })
   nextBatchId += 1
   rebuildDefense()
@@ -490,7 +581,7 @@ function removeBatch(id: number): void {
   if (phase !== 'planning') return
   const batch = queue.find((item) => item.id === id)
   if (!batch) return
-  credits += UNIT_DEFS[batch.kind].cost
+  credits += unitCost(batch.kind, ownedMutations)
   queue = queue.filter((item) => item.id !== id)
   rebuildDefense()
   updateUI()
@@ -509,20 +600,26 @@ function setFormation(nextFormation: Formation): void {
   document.querySelectorAll('[data-formation]').forEach((button) => {
     button.classList.toggle('active', (button as HTMLElement).dataset.formation === formation)
   })
+  rebuildDefense()
+  updateUI()
   sounds.play('click')
 }
 
 function launchWave(): void {
   if (phase !== 'planning' || queue.length === 0) return
   phase = 'battle'
-  spawnPlan = buildSpawnPlan(queue, formation)
+  spawnPlan = buildSpawnPlan(queue, formation, ownedMutations)
   spawnIndex = 0
   waveElapsed = 0
-  waveStats = { deployed: spawnPlan.length, destroyed: 0, breaches: 0, coreDamage: 0 }
+  waveStats = { deployed: spawnPlan.length, destroyed: 0, breaches: 0, coreDamage: 0, nodes: 0 }
   units = []
   particles = []
   shots = []
   labels = []
+  commandUsed = false
+  jammedUntil = 0
+  globalBoostUntil = 0
+  nodes.forEach((node) => (node.activated = false))
   speed = 1
   ui.speed.textContent = '1×'
   towers.forEach((tower) => {
@@ -535,7 +632,7 @@ function launchWave(): void {
 }
 
 function spawnUnit(entry: SpawnEntry): void {
-  const definition = UNIT_DEFS[entry.kind]
+  const definition = unitDefinition(entry.kind, ownedMutations)
   units.push({
     id: nextUnitId,
     kind: entry.kind,
@@ -543,6 +640,7 @@ function spawnUnit(entry: SpawnEntry): void {
     hp: definition.hp,
     maxHp: definition.hp,
     slowUntil: 0,
+    shield: entry.kind === 'swift' ? modifiersFor(ownedMutations).swiftShield : 0,
     flash: 0,
     alive: true
   })
@@ -569,7 +667,15 @@ function burst(position: Point, color: string, count: number, force = 0.08): voi
 }
 
 function damageUnit(target: RuntimeUnit, damage: number, tower: RuntimeTower): void {
-  const definition = UNIT_DEFS[target.kind]
+  const definition = unitDefinition(target.kind, ownedMutations)
+  if (target.shield > 0) {
+    target.shield -= 1
+    target.flash = 0.18
+    const position = pointOnRoute(route, target.progress)
+    burst(position, '#fff1a6', 6, 0.05)
+    labels.push({ x: position.x, y: position.y, text: 'PHASE EVADE', color: '#ffe08a', life: 0.75 })
+    return
+  }
   const ignoresArmor = tower.kind === 'cannon' ? 0.55 : 0
   const armor = definition.armor * (1 - ignoresArmor)
   target.hp -= damage * (1 - armor)
@@ -615,6 +721,61 @@ function attackWithTower(tower: RuntimeTower, target: RuntimeUnit): void {
   }
 }
 
+function activateCommand(): void {
+  if (phase !== 'battle' || commandUsed) return
+  commandUsed = true
+  const duration = modifiersFor(ownedMutations).empDuration
+  jammedUntil = Math.max(jammedUntil, waveElapsed + duration)
+  for (const tower of towers) {
+    tower.cooldown = Math.max(tower.cooldown, duration * 0.35)
+    burst(tower.position, '#78e6ff', 9, 0.085)
+  }
+  labels.push({
+    x: 0.5,
+    y: 0.12,
+    text: `EMP BLACKOUT · ${duration.toFixed(1)}S`,
+    color: '#8ae9ff',
+    life: 1.2
+  })
+  showToast(`EMP 已释放 · 防线离线 ${duration.toFixed(1)} 秒`, 'success')
+  ui.announcer.textContent = `EMP 指令已释放，所有防御塔离线 ${duration.toFixed(1)} 秒。`
+  updateUI()
+  sounds.play('launch')
+}
+
+function activateNode(node: RuntimeNode): void {
+  if (node.activated) return
+  node.activated = true
+  waveStats.nodes += 1
+  const definition = TACTICAL_NODE_DEFS[node.kind]
+  const multiplier = modifiersFor(ownedMutations).nodeMultiplier
+
+  if (node.kind === 'vitality') {
+    for (const unit of units) {
+      if (!unit.alive) continue
+      unit.hp = Math.min(unit.maxHp, unit.hp + unit.maxHp * 0.3 * multiplier)
+    }
+  } else if (node.kind === 'haste') {
+    globalBoostUntil = Math.max(globalBoostUntil, waveElapsed + 2.4 * multiplier)
+  } else {
+    jammedUntil = Math.max(jammedUntil, waveElapsed + 1.8 * multiplier)
+  }
+
+  score += 180
+  burst(node.position, definition.color, 22, 0.15)
+  labels.push({
+    x: node.position.x,
+    y: node.position.y - 0.035,
+    text: `${definition.code} ACQUIRED`,
+    color: definition.color,
+    life: 1.25
+  })
+  showToast(`${definition.name} · 已吸收`, 'success')
+  ui.announcer.textContent = `${definition.name}已触发。${definition.detail}`
+  updateUI()
+  sounds.play('breach')
+}
+
 function updateBattle(delta: number): void {
   waveElapsed += delta
 
@@ -627,9 +788,11 @@ function updateBattle(delta: number): void {
   const lengthScale = routeLength(route) / 1.1
   for (const unit of units) {
     if (!unit.alive) continue
-    const definition = UNIT_DEFS[unit.kind]
+    const definition = unitDefinition(unit.kind, ownedMutations)
     const slowed = unit.slowUntil > waveElapsed
-    unit.progress += (definition.speed * (slowed ? 0.55 : 1) * delta) / lengthScale
+    const boosted = globalBoostUntil > waveElapsed
+    unit.progress +=
+      (definition.speed * (slowed ? 0.55 : 1) * (boosted ? 1.48 : 1) * delta) / lengthScale
     unit.flash = Math.max(0, unit.flash - delta)
 
     if (unit.progress >= 1) {
@@ -647,6 +810,12 @@ function updateBattle(delta: number): void {
         life: 1.2
       })
       score += definition.breach * 650 + Math.max(0, waveStats.breaches - 1) * 80
+      const stolen = modifiersFor(ownedMutations).breachCredit
+      if (stolen > 0) {
+        credits += stolen
+        ui.credits.textContent = credits.toString()
+        ui.budget.textContent = credits.toString()
+      }
       showToast(
         waveStats.breaches > 1 ? `突破连锁 ×${waveStats.breaches}` : '核心已突破',
         'success'
@@ -655,9 +824,20 @@ function updateBattle(delta: number): void {
     }
   }
 
+  for (const node of nodes) {
+    if (node.activated) continue
+    const reached = units.some((unit) => {
+      if (!unit.alive) return false
+      const position = pointOnRoute(route, unit.progress)
+      return Math.hypot(position.x - node.position.x, position.y - node.position.y) <= node.radius
+    })
+    if (reached) activateNode(node)
+  }
+
   for (const tower of towers) {
     tower.cooldown -= delta
     tower.recoil = Math.max(0, tower.recoil - delta)
+    if (waveElapsed < jammedUntil) continue
     if (tower.cooldown > 0) continue
     const target = units
       .filter((unit) => {
@@ -707,10 +887,11 @@ function finishWave(): void {
   history = {
     ...composition,
     repeatedRoute: signature === lastRouteSignature,
-    breaches: waveStats.breaches
+    breaches: waveStats.breaches,
+    formation
   }
   lastRouteSignature = signature
-  const reward = 118 + round * 12 + waveStats.coreDamage * 5
+  const reward = 118 + round * 12 + waveStats.coreDamage * 5 + waveStats.nodes * 28
   credits += reward
 
   if (round >= MAX_ROUNDS) {
@@ -718,19 +899,32 @@ function finishWave(): void {
     return
   }
 
-  const nextAnalysis = analyzeArmy(queue, history)
+  const nextAnalysis = analyzeArmy(queue, history, formation)
   byId('summary-index').textContent = `WAVE REPORT // ${round.toString().padStart(2, '0')}`
   byId('summary-title').textContent = waveStats.breaches ? '防线正在重构' : '入侵信号已中断'
   byId('summary-copy').textContent = waveStats.breaches
-    ? `你对核心造成了 ${waveStats.coreDamage} 点伤害。AI 已锁定本轮编队特征。`
-    : '没有单位抵达核心。调整路线或用铁甲兽吸收第一轮火力。'
+    ? `你对核心造成了 ${waveStats.coreDamage} 点伤害，并吸收 ${waveStats.nodes} 个战场信标。`
+    : `没有单位抵达核心，本轮吸收 ${waveStats.nodes} 个战场信标。调整路线或编队后再试。`
   byId('stat-deployed').textContent = waveStats.deployed.toString()
   byId('stat-breaches').textContent = waveStats.breaches.toString()
   byId('stat-damage').textContent = waveStats.coreDamage.toString()
   byId('stat-reward').textContent = `+${reward}`
   byId('next-ai-name').textContent = nextAnalysis.name
-  byId('next-ai-copy').textContent = nextAnalysis.detail
-  ui.continueButton.innerHTML = '准备下一回合 <span>→</span>'
+  byId('next-ai-copy').textContent = `${nextAnalysis.detail} ${nextAnalysis.counter}`
+  currentMutationOffers = mutationOffers(round, ownedMutations)
+  pendingMutation = null
+  ui.evolutionPanel.hidden = false
+  ui.evolutionGrid.innerHTML = currentMutationOffers
+    .map(
+      (
+        mutation
+      ) => `<button type="button" data-mutation="${mutation.id}" style="--evolution:${mutation.accent}">
+        <span>${mutation.code}</span><strong>${mutation.name}</strong><small>${mutation.detail}</small>
+      </button>`
+    )
+    .join('')
+  ui.continueButton.disabled = true
+  ui.continueButton.innerHTML = '先选择进化 <span>→</span>'
   ui.summary.classList.add('open')
   ui.summary.setAttribute('aria-hidden', 'false')
   updateUI()
@@ -757,6 +951,9 @@ function finishGame(victory: boolean): void {
   byId('next-ai-copy').textContent = victory
     ? 'AI 无法为未知路线建立稳定模型。'
     : '尝试混入高速单位，并改变连续两回合的路线。'
+  ui.evolutionPanel.hidden = true
+  pendingMutation = null
+  ui.continueButton.disabled = false
   ui.continueButton.innerHTML = '再次入侵 <span>↻</span>'
   ui.summary.classList.add('open')
   ui.summary.setAttribute('aria-hidden', 'false')
@@ -766,6 +963,17 @@ function finishGame(victory: boolean): void {
   sounds.play(victory ? 'win' : 'hit')
 }
 
+function selectMutation(id: MutationId): void {
+  if (phase !== 'summary' || !currentMutationOffers.some((offer) => offer.id === id)) return
+  pendingMutation = id
+  ui.evolutionGrid.querySelectorAll<HTMLButtonElement>('[data-mutation]').forEach((button) => {
+    button.classList.toggle('selected', button.dataset.mutation === id)
+  })
+  ui.continueButton.disabled = false
+  ui.continueButton.innerHTML = `吸收「${MUTATION_DEFS[id].name}」 <span>→</span>`
+  sounds.play('click')
+}
+
 function advanceRound(): void {
   if (phase === 'ended') {
     resetGame()
@@ -773,6 +981,9 @@ function advanceRound(): void {
     ui.summary.setAttribute('aria-hidden', 'true')
     return
   }
+  if (!pendingMutation) return
+  ownedMutations.push(pendingMutation)
+  pendingMutation = null
   round += 1
   phase = 'planning'
   queue = []
@@ -780,12 +991,21 @@ function advanceRound(): void {
   particles = []
   shots = []
   labels = []
+  spawnPlan = []
+  spawnIndex = 0
+  waveElapsed = 0
+  waveStats = { deployed: 0, destroyed: 0, breaches: 0, coreDamage: 0, nodes: 0 }
+  commandUsed = false
+  jammedUntil = 0
+  globalBoostUntil = 0
   selectedWaypoint = 2
   defenseRoute = route.map((point) => ({ ...point }))
+  nodes = generateTacticalNodes(round).map((node) => ({ ...node, activated: false }))
   rebuildDefense()
   ui.summary.classList.remove('open')
   ui.summary.setAttribute('aria-hidden', 'true')
   showToast(`STAGE ${round.toString().padStart(2, '0')} · ${analysis.name}`, 'neutral')
+  ui.announcer.textContent = `第 ${round} 回合规划开始。EMP 指令已重新充能。`
   updateUI()
 }
 
@@ -802,6 +1022,13 @@ function resetGame(): void {
   defenseRoute = DEFAULT_ROUTE.map((point) => ({ ...point }))
   lastRouteSignature = ''
   history = undefined
+  ownedMutations = []
+  pendingMutation = null
+  currentMutationOffers = []
+  commandUsed = false
+  jammedUntil = 0
+  globalBoostUntil = 0
+  nodes = generateTacticalNodes(round).map((node) => ({ ...node, activated: false }))
   units = []
   spawnPlan = []
   spawnIndex = 0
@@ -810,6 +1037,8 @@ function resetGame(): void {
   particles = []
   shots = []
   labels = []
+  ui.evolutionPanel.hidden = false
+  ui.continueButton.disabled = true
   document.querySelectorAll('[data-route]').forEach((button) => {
     button.classList.toggle('active', (button as HTMLElement).dataset.route === 'zigzag')
   })
@@ -957,12 +1186,46 @@ function drawPortal(position: Point, destination: boolean, time: number): void {
   context.restore()
 }
 
+function drawTacticalNode(node: RuntimeNode, time: number): void {
+  const center = px(node.position)
+  const definition = TACTICAL_NODE_DEFS[node.kind]
+  const pulse = 1 + Math.sin(time * 0.004 + node.id * 1.7) * 0.09
+  const radius = Math.min(canvasWidth, canvasHeight) * node.radius
+  context.save()
+  context.translate(center.x, center.y)
+  context.globalAlpha = node.activated ? 0.34 : 1
+  context.beginPath()
+  context.arc(0, 0, radius * pulse, 0, Math.PI * 2)
+  context.fillStyle = `${definition.color}0d`
+  context.fill()
+  context.strokeStyle = `${definition.color}66`
+  context.setLineDash([3, 6])
+  context.lineWidth = 1
+  context.stroke()
+  context.setLineDash([])
+  context.rotate(Math.PI / 4 + time * 0.00018)
+  context.fillStyle = 'rgba(6, 10, 11, .92)'
+  context.strokeStyle = definition.color
+  context.lineWidth = 1.5
+  context.fillRect(-9, -9, 18, 18)
+  context.strokeRect(-9, -9, 18, 18)
+  context.fillStyle = definition.color
+  context.fillRect(-3, -3, 6, 6)
+  context.rotate(-Math.PI / 4 - time * 0.00018)
+  context.font = '700 8px ui-monospace, monospace'
+  context.textAlign = 'center'
+  context.fillStyle = definition.color
+  context.fillText(node.activated ? 'ABSORBED' : definition.code, 0, radius + 15)
+  context.restore()
+}
+
 function drawTower(tower: RuntimeTower, time: number): void {
   const center = px(tower.position)
   const definition = TOWER_DEFS[tower.kind]
   const radius = tower.kind === 'cannon' ? 12 : 10
   context.save()
   context.translate(center.x, center.y)
+  if (phase === 'battle' && waveElapsed < jammedUntil) context.globalAlpha = 0.42
   if (phase === 'planning') {
     context.beginPath()
     context.arc(0, 0, tower.range * canvasWidth, 0, Math.PI * 2)
@@ -1014,7 +1277,7 @@ function drawUnit(unit: RuntimeUnit): void {
   const position = px(pointOnRoute(route, unit.progress))
   const ahead = px(pointOnRoute(route, clamp(unit.progress + 0.008, 0, 1)))
   const angle = Math.atan2(ahead.y - position.y, ahead.x - position.x)
-  const definition = UNIT_DEFS[unit.kind]
+  const definition = unitDefinition(unit.kind, ownedMutations)
   const radius = Math.max(7, definition.radius * canvasWidth)
   context.save()
   context.translate(position.x, position.y)
@@ -1024,6 +1287,13 @@ function drawUnit(unit: RuntimeUnit): void {
   context.fillStyle = unit.flash > 0 ? '#ffffff' : definition.color
   context.strokeStyle = 'rgba(4, 8, 8, .75)'
   context.lineWidth = 1.5
+  if (unit.shield > 0) {
+    context.beginPath()
+    context.arc(0, 0, radius + 4, 0, Math.PI * 2)
+    context.strokeStyle = 'rgba(255, 232, 151, .86)'
+    context.stroke()
+    context.strokeStyle = 'rgba(4, 8, 8, .75)'
+  }
   if (unit.kind === 'slime') {
     context.beginPath()
     context.moveTo(-radius, radius * 0.45)
@@ -1134,6 +1404,7 @@ function render(time: number): void {
   resizeCanvas()
   drawBackdrop(time)
   drawRoute(time)
+  nodes.forEach((node) => drawTacticalNode(node, time))
   const start = route[0]
   const destination = route.at(-1)
   if (start) drawPortal(start, false, time)
@@ -1260,6 +1531,11 @@ document.querySelectorAll<HTMLButtonElement>('[data-formation]').forEach((button
 
 ui.launch.addEventListener('click', launchWave)
 ui.continueButton.addEventListener('click', advanceRound)
+ui.command.addEventListener('click', activateCommand)
+ui.evolutionGrid.addEventListener('click', (event) => {
+  const button = (event.target as HTMLElement).closest<HTMLButtonElement>('[data-mutation]')
+  if (button?.dataset.mutation) selectMutation(button.dataset.mutation as MutationId)
+})
 
 byId<HTMLButtonElement>('enter-button').addEventListener('click', () => {
   ui.intro.classList.remove('open')
@@ -1295,6 +1571,7 @@ window.addEventListener('keydown', (event) => {
     event.preventDefault()
     launchWave()
   }
+  if (event.code === 'KeyE' && phase === 'battle') activateCommand()
 })
 
 window.addEventListener('resize', resizeCanvas)
