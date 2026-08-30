@@ -4,6 +4,7 @@ import {
   analyzeArmy,
   buildSpawnPlan,
   coreDamageFor,
+  evaluateRoutePlan,
   formationMatchup,
   generateTowerBlueprints,
   generateTacticalNodes,
@@ -51,6 +52,19 @@ describe('route helpers', () => {
     expect(coreDamageFor(3, 0)).toBe(0)
     expect(coreDamageFor(3, 1)).toBe(1.5)
     expect(coreDamageFor(3, 2)).toBe(3)
+  })
+
+  it('accepts only a short route that crosses every relay', () => {
+    const nodes = generateTacticalNodes(1)
+    const valid = DEFAULT_ROUTE.map((point) => ({ ...point }))
+    if (nodes[0]) valid[1] = { ...nodes[0].position }
+    if (nodes[1]) valid[3] = { ...nodes[1].position }
+
+    expect(evaluateRoutePlan(DEFAULT_ROUTE, nodes, 1.35).ready).toBe(false)
+    const status = evaluateRoutePlan(valid, nodes, 1.35)
+    expect(status.linked).toBe(2)
+    expect(status.length).toBeLessThanOrEqual(1.35)
+    expect(status.ready).toBe(true)
   })
 })
 
@@ -129,7 +143,7 @@ describe('adaptive defense', () => {
       breaches: 0
     })
     expect(analysis.mode).toBe('lockdown')
-    expect(generateTowerBlueprints(DEFAULT_ROUTE, 1, analysis, 42)).toHaveLength(5)
+    expect(generateTowerBlueprints(DEFAULT_ROUTE, 1, analysis, 42)).toHaveLength(6)
     expect(analysis.counter).toContain('路标')
   })
 
@@ -149,8 +163,8 @@ describe('adaptive defense', () => {
     const analysis = analyzeArmy([])
     const early = generateTowerBlueprints(DEFAULT_ROUTE, 1, analysis, 42)
     const late = generateTowerBlueprints(DEFAULT_ROUTE, 5, analysis, 42)
-    expect(early).toHaveLength(4)
-    expect(late).toHaveLength(6)
+    expect(early).toHaveLength(5)
+    expect(late).toHaveLength(7)
     for (const tower of late) {
       expect(tower.position.x).toBeGreaterThanOrEqual(0.08)
       expect(tower.position.x).toBeLessThanOrEqual(0.92)

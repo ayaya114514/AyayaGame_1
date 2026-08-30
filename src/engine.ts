@@ -96,6 +96,14 @@ export type TacticalNodeBlueprint = {
   radius: number
 }
 
+export type RoutePlanStatus = {
+  linked: number
+  total: number
+  length: number
+  remaining: number
+  ready: boolean
+}
+
 export type CommandDefinition = {
   name: string
   short: string
@@ -361,6 +369,22 @@ export function linkedNodeIds(points: Point[], nodes: TacticalNodeBlueprint[]): 
   return nodes.filter((node) => routeTouchesNode(points, node)).map((node) => node.id)
 }
 
+export function evaluateRoutePlan(
+  points: Point[],
+  nodes: TacticalNodeBlueprint[],
+  maxLength: number
+): RoutePlanStatus {
+  const length = routeLength(points)
+  const linked = linkedNodeIds(points, nodes).length
+  return {
+    linked,
+    total: nodes.length,
+    length,
+    remaining: maxLength - length,
+    ready: linked === nodes.length && length <= maxLength
+  }
+}
+
 export function routeSimilarity(points: Point[], previous: Point[] | null): number {
   if (!previous || points.length !== previous.length || points.length < 3) return 0
   const editable = points.slice(1, -1)
@@ -601,7 +625,7 @@ export function generateTowerBlueprints(
   seed = 1
 ): TowerBlueprint[] {
   const random = seededRandom(seed + round * 811)
-  const count = clamp(4 + Math.floor(round / 2) + (analysis.mode === 'lockdown' ? 1 : 0), 4, 7)
+  const count = clamp(5 + Math.floor(round / 2) + (analysis.mode === 'lockdown' ? 1 : 0), 5, 8)
   const towers: TowerBlueprint[] = []
 
   for (let index = 0; index < count; index += 1) {

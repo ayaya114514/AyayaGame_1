@@ -1,10 +1,10 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630">
-  <rect width="1200" height="630" fill="#0b0c0d"/>
-  <rect x="54" y="54" width="1092" height="522" rx="18" fill="#111315" stroke="#2c3034" stroke-width="2"/>
-  <path d="M90 400 290 275 500 390 725 230 930 355 1110 265" fill="none" stroke="#202a26" stroke-width="34" stroke-linecap="round" stroke-linejoin="round"/>
-  <path d="M90 400 290 275 500 390 725 230 930 355 1110 265" fill="none" stroke="#79b993" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
-  <g fill="#111315" stroke="#79d39f" stroke-width="4"><circle cx="290" cy="275" r="19"/><circle cx="725" cy="230" r="19"/></g>
-  <g fill="#111315" stroke="#ee8580" stroke-width="4"><circle cx="500" cy="390" r="14"/><circle cx="930" cy="355" r="14"/></g>
-  <text x="90" y="130" fill="#79d39f" font-family="system-ui,sans-serif" font-weight="650" font-size="28">反向塔防 · 五回合策略挑战</text>
-  <text x="90" y="510" fill="#f1f2f3" font-family="system-ui,sans-serif" font-weight="750" font-size="72" letter-spacing="-3">Ayaya Breach Protocol</text>
+  <rect width="1200" height="630" fill="#0b0b0a"/>
+  <path d="M72 376 284 240 490 402 704 214 930 340 1128 260" fill="none" stroke="#080908" stroke-width="42" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M72 376 284 240 490 402" fill="none" stroke="#aab88d" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M490 402 704 214 930 340" fill="none" stroke="#b06159" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M930 340 1128 260" fill="none" stroke="#aab88d" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+  <g fill="#0b0b0a" stroke="#aab88d" stroke-width="4"><rect x="273" y="229" width="22" height="22"/><rect x="693" y="203" width="22" height="22"/></g>
+  <text x="72" y="94" fill="#a4a39b" font-family="system-ui,sans-serif" font-weight="500" font-size="25">双中继 · 1.35 路线预算 · 四回合</text>
+  <text x="72" y="544" fill="#e9e7df" font-family="system-ui,sans-serif" font-weight="720" font-size="72" letter-spacing="-3">Ayaya Breach Protocol</text>
 </svg>

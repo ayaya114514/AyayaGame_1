@@ -1,7 +1,6 @@
 import './style.css'
 import {
   DEFAULT_ROUTE,
-  COMMAND_DEFS,
   MUTATION_DEFS,
   TACTICAL_NODE_DEFS,
   TOWER_DEFS,
@@ -11,10 +10,9 @@ import {
   clamp,
   compositionOf,
   coreDamageFor,
-  formationMatchup,
+  evaluateRoutePlan,
   generateTacticalNodes,
   generateTowerBlueprints,
-  linkedNodeIds,
   modifiersFor,
   mutationOffers,
   pointOnRoute,
@@ -26,8 +24,6 @@ import {
   type AIAnalysis,
   type AIHistory,
   type ArmyBatch,
-  type CommandKind,
-  type Formation,
   type MutationDefinition,
   type MutationId,
   type Point,
@@ -97,8 +93,12 @@ type WaveStats = {
   nodes: number
 }
 
-const MAX_ROUNDS = 5
-const MAX_CORE = 30
+const MAX_ROUNDS = 4
+const MAX_CORE = 32
+const STARTING_CREDITS = 132
+const MAX_ROUTE_LENGTH = 1.35
+const MIN_BATCHES = 2
+const MAX_BATCHES = 4
 const maybeApp = document.querySelector<HTMLDivElement>('#app')
 
 if (!maybeApp) throw new Error('App root is missing')
@@ -112,9 +112,9 @@ app.innerHTML = `
         <span>Breach Protocol</span>
       </a>
       <div class="game-stats" aria-label="战局状态">
-        <span>第 <strong id="round-value">1 / 5</strong> 回合</span>
-        <span>核心 <strong id="core-value">30</strong></span>
-        <span><strong id="credit-value">180</strong> 资源</span>
+        <span>第 <strong id="round-value">1 / 4</strong> 回合</span>
+        <span>核心 <strong id="core-value">32</strong></span>
+        <span><strong id="credit-value">132</strong> 资源</span>
       </div>
       <div class="top-actions">
         <button class="icon-button" id="sound-button" type="button" aria-label="关闭音效" aria-pressed="true">
@@ -128,97 +128,48 @@ app.innerHTML = `
       <section class="battlefield" aria-label="战场">
         <div class="battlefield-toolbar">
           <div class="phase-label"><i></i><span id="phase-label">规划中</span></div>
-          <p class="battle-rule">接入中继才能攻击核心；重复路线会承受额外伤害。</p>
+          <p class="battle-rule" id="defense-copy">红色路段处于火力覆盖内</p>
           <div class="battlefield-actions">
-            <button class="command-button" id="command-button" type="button" aria-label="释放战术指令" disabled><span>静默</span><small>1 次</small></button>
             <button class="speed-button" id="speed-button" type="button" aria-label="切换战斗速度" disabled>1×</button>
           </div>
         </div>
         <div class="canvas-wrap">
-          <canvas id="battlefield" tabindex="0" aria-label="路线战场。规划阶段可拖拽三个绿色路标，方向键可微调选中的路标。"></canvas>
-          <div class="map-hint" id="map-hint">拖动路标 · 路线必须接入至少一个中继</div>
+          <canvas id="battlefield" tabindex="0" aria-label="路线战场。拖动三个方形路标，让路线经过两个中继并避开红色火力路段。"></canvas>
+          <div class="map-hint" id="map-hint">拖动 3 个路标 · 经过两个中继 · 路线不超过 1.35</div>
           <div class="wave-progress" id="wave-progress" hidden><i></i></div>
           <div class="combat-toast" id="combat-toast" role="status" aria-live="polite"></div>
         </div>
         <div class="route-readout" aria-label="路线评估">
           <span>中继 <strong id="relay-value">0 / 2</strong></span>
-          <span>暴露 <strong id="route-risk">高</strong></span>
-          <span>轨迹 <strong id="trace-value">新路线</strong></span>
-          <span>长度 <strong id="route-length">1.52</strong></span>
+          <span>路线 <strong id="route-length">1.52 / 1.35</strong></span>
+          <span><strong id="trace-value">新路径</strong></span>
         </div>
       </section>
 
-      <section class="decision-dock" aria-label="入侵计划">
-        <div class="defense-note">
-          <span>防线</span>
-          <p id="ai-readout">均衡戒备：威胁样本不足，先改变路线试探射界。</p>
+      <section class="unit-bar" aria-label="出兵顺序">
+        <header class="unit-bar-title">
+          <div><strong>出兵</strong><small>按点击顺序部署 · 2–4 批</small></div>
+          <div class="mutation-rack" id="mutation-rack"><span>自动进化</span><small>无</small></div>
+        </header>
+        <div class="unit-market" id="unit-market">
+          <button class="unit-card" type="button" data-unit="slime">
+            <span class="unit-copy"><strong>史莱姆 <em>×3</em></strong><small>诱饵</small></span>
+            <span class="unit-cost">30</span>
+          </button>
+          <button class="unit-card" type="button" data-unit="swift">
+            <span class="unit-copy"><strong>疾行兽 <em>×2</em></strong><small>高速</small></span>
+            <span class="unit-cost">42</span>
+          </button>
+          <button class="unit-card" type="button" data-unit="tank">
+            <span class="unit-copy"><strong>铁甲兽 <em>×1</em></strong><small>重装</small></span>
+            <span class="unit-cost">60</span>
+          </button>
         </div>
-
-        <section class="decision-row route-row">
-          <header><strong>路线</strong><small id="route-ready">未接入中继</small></header>
-          <div class="route-options">
-            <div class="preset-list" aria-label="路线预设">
-            <button type="button" data-route="direct">直线</button>
-            <button type="button" data-route="high">上绕</button>
-            <button type="button" data-route="low">下绕</button>
-            <button class="active" type="button" data-route="zigzag">折线</button>
-            </div>
-            <div class="signal-strip" id="signal-strip" aria-label="本回合战场中继"></div>
-          </div>
-        </section>
-
-        <section class="decision-row army-row">
-          <header><strong>编队</strong><small><span id="budget-value">180</span> 可用</small></header>
-          <div class="army-builder">
-            <div class="unit-market" id="unit-market">
-              <button class="unit-card" type="button" data-unit="slime">
-                <span class="unit-copy"><strong>史莱姆 <em>×3</em></strong><small>消耗炮击</small></span>
-                <span class="unit-cost">30</span>
-              </button>
-              <button class="unit-card" type="button" data-unit="swift">
-                <span class="unit-copy"><strong>疾行兽 <em>×2</em></strong><small>高速抢点</small></span>
-                <span class="unit-cost">42</span>
-              </button>
-              <button class="unit-card" type="button" data-unit="tank">
-                <span class="unit-copy"><strong>铁甲兽 <em>×1</em></strong><small>重装突破</small></span>
-                <span class="unit-cost">60</span>
-              </button>
-            </div>
-            <div class="queue-track" id="queue-track" aria-label="出兵序列"></div>
-          </div>
-          <div class="mutation-rack" id="mutation-rack"><span>进化</span><small>无</small></div>
-        </section>
-
-        <section class="decision-row tactic-row">
-          <header><strong>战术</strong><small id="formation-copy">标准节奏</small></header>
-          <div class="tactic-options">
-            <div class="choice-block">
-              <span>节奏</span>
-              <div class="segmented" role="group" aria-label="出兵节奏">
-                <button type="button" data-formation="rush">紧密</button>
-                <button class="active" type="button" data-formation="steady">标准</button>
-                <button type="button" data-formation="split">分批</button>
-              </div>
-            </div>
-            <div class="choice-block command-block">
-              <span>指令</span>
-              <div class="command-choice" id="command-choice" role="group" aria-label="战术指令">
-                <button class="active" type="button" data-command="blackout">静默</button>
-                <button type="button" data-command="overdrive">冲刺</button>
-                <button type="button" data-command="mend">再生</button>
-              </div>
-            </div>
-          </div>
-          <div class="tactic-copy">
-            <p class="matchup neutral" id="matchup-copy">当前节奏不会明显克制这套防线。</p>
-            <p id="command-description">让全部防御塔暂时离线。</p>
-          </div>
-        </section>
-
+        <div class="queue-track" id="queue-track" aria-label="当前出兵序列"></div>
         <div class="launch-zone">
-          <div class="readiness"><span><i id="ready-light"></i><strong id="ready-title">等待编队</strong></span><small id="ready-copy">购买单位并接入中继</small></div>
+          <div class="readiness"><span><i id="ready-light"></i><strong id="ready-title">路线无效</strong></span><small id="ready-copy">经过两个中继并缩短路线</small></div>
           <button class="launch-button" id="launch-button" type="button" disabled>
-            <span>开始</span><small>路线接入中继后可出发</small>
+            <span>出发</span>
           </button>
         </div>
       </section>
@@ -229,19 +180,18 @@ app.innerHTML = `
     <section class="modal summary-modal">
       <span class="modal-index" id="summary-index">第 1 回合</span>
       <h2 id="summary-title">回合结束</h2>
-      <p id="summary-copy">AI 已记录你的打法，下一回合会调整塔组。</p>
+      <p id="summary-copy">下一回合的火力会重新布置。</p>
       <div class="report-stats">
         <div><span>部署</span><strong id="stat-deployed">0</strong></div>
         <div><span>突破</span><strong id="stat-breaches">0</strong></div>
         <div><span>核心伤害</span><strong id="stat-damage">0</strong></div>
         <div><span>情报奖励</span><strong id="stat-reward">+0</strong></div>
       </div>
-      <div class="adaptation-note"><span>下一轮</span><p><strong id="next-ai-name">截流协议</strong> · <span id="next-ai-copy">正在分析防守策略。</span></p></div>
-      <div class="evolution-panel" id="evolution-panel">
-        <div class="evolution-heading"><span>选择进化</span><small>本局永久生效</small></div>
-        <div class="evolution-grid" id="evolution-grid"></div>
+      <div class="earned-upgrade" id="earned-upgrade">
+        <span>自动进化</span>
+        <p><strong id="earned-upgrade-name">相位薄膜</strong> · <span id="earned-upgrade-copy">疾行兽抵消第一次攻击。</span></p>
       </div>
-      <button class="primary-modal-button" id="continue-button" type="button" disabled>先选择进化 <span>→</span></button>
+      <button class="primary-modal-button" id="continue-button" type="button">下一回合 <span>→</span></button>
     </section>
   </div>
 
@@ -263,21 +213,13 @@ const ui = {
   round: byId('round-value'),
   core: byId('core-value'),
   credits: byId('credit-value'),
-  budget: byId('budget-value'),
   routeLength: byId('route-length'),
-  routeRisk: byId('route-risk'),
-  aiReadout: byId('ai-readout'),
-  signalStrip: byId('signal-strip'),
   relayValue: byId('relay-value'),
   traceValue: byId('trace-value'),
-  routeReady: byId('route-ready'),
   mutationRack: byId('mutation-rack'),
   queue: byId('queue-track'),
   market: byId('unit-market'),
-  formationCopy: byId('formation-copy'),
-  matchupCopy: byId('matchup-copy'),
-  commandChoice: byId('command-choice'),
-  commandDescription: byId('command-description'),
+  defenseCopy: byId('defense-copy'),
   readyLight: byId('ready-light'),
   readyTitle: byId('ready-title'),
   readyCopy: byId('ready-copy'),
@@ -285,12 +227,10 @@ const ui = {
   phase: byId('phase-label'),
   mapHint: byId('map-hint'),
   speed: byId<HTMLButtonElement>('speed-button'),
-  command: byId<HTMLButtonElement>('command-button'),
   waveProgress: byId('wave-progress'),
   combatToast: byId('combat-toast'),
   summary: byId('summary-modal'),
-  evolutionPanel: byId('evolution-panel'),
-  evolutionGrid: byId('evolution-grid'),
+  earnedUpgrade: byId('earned-upgrade'),
   continueButton: byId<HTMLButtonElement>('continue-button'),
   announcer: byId('announcer'),
   sound: byId<HTMLButtonElement>('sound-button')
@@ -298,13 +238,12 @@ const ui = {
 
 let phase: Phase = 'planning'
 let round = 1
-let credits = 180
+let credits = STARTING_CREDITS
 let core = MAX_CORE
 let score = 0
 let bestScore = Number.parseInt(localStorage.getItem('breach-protocol-best') ?? '0', 10) || 0
 let queue: ArmyBatch[] = []
 let nextBatchId = 1
-let formation: Formation = 'steady'
 let route = DEFAULT_ROUTE.map((point) => ({ ...point }))
 let defenseRoute = DEFAULT_ROUTE.map((point) => ({ ...point }))
 let previousRoute: Point[] | null = null
@@ -322,10 +261,7 @@ let nextUnitId = 1
 let waveElapsed = 0
 let speed = 1
 let ownedMutations: MutationId[] = []
-let pendingMutation: MutationId | null = null
-let currentMutationOffers: MutationDefinition[] = []
-let commandUsed = false
-let selectedCommand: CommandKind = 'blackout'
+let lastEarnedMutation: MutationDefinition | null = null
 let routeRepeated = false
 let jammedUntil = 0
 let globalBoostUntil = 0
@@ -397,79 +333,44 @@ function formatScore(value: number): string {
   return Math.round(value).toString().padStart(6, '0')
 }
 
-function defenseReason(current: AIAnalysis): string {
-  const summaries: Record<AIAnalysis['mode'], string> = {
-    balanced: '样本不足 → 通用火力',
-    intercept: '上轮高速单位偏多 → 本轮迟滞塔前移',
-    pierce: '上轮重装单位偏多 → 本轮穿甲火力重叠',
-    suppress: '上轮密集冲锋 → 本轮范围火力覆盖',
-    lockdown: '路线重复 → 本轮沿旧路径增伤 30%'
-  }
-  return summaries[current.mode]
-}
-
 function updateUI(): void {
   const isPlanning = phase === 'planning'
   const modifiers = modifiersFor(ownedMutations)
-  const length = routeLength(route)
-  const linkedNodes = linkedNodeIds(route, nodes)
+  const routeStatus = evaluateRoutePlan(route, nodes, MAX_ROUTE_LENGTH)
   const similarity = routeSimilarity(route, previousRoute)
-  routeRepeated = round > 1 && similarity >= 0.78
-  const exposureSamples = Array.from({ length: 60 }, (_, index) => pointOnRoute(route, index / 59))
-  const exposure =
-    exposureSamples.filter((point) =>
-      towers.some(
-        (tower) =>
-          Math.hypot(point.x - tower.position.x, point.y - tower.position.y) < tower.range * 0.84
-      )
-    ).length / exposureSamples.length
-  const risk = exposure > 0.56 ? '极高' : exposure > 0.4 ? '高' : exposure > 0.24 ? '中' : '低'
-  const riskClass = exposure > 0.4 ? 'risk-high' : exposure > 0.24 ? 'risk-medium' : 'risk-low'
-  const matchup = formationMatchup(formation, analysis.mode)
+  routeRepeated = round > 1 && similarity >= 0.72
 
   ui.round.textContent = `${round} / ${MAX_ROUNDS}`
   ui.core.textContent = Math.ceil(core).toString()
   ui.credits.textContent = credits.toString()
-  ui.budget.textContent = credits.toString()
-  ui.routeLength.textContent = length.toFixed(2)
-  ui.routeRisk.textContent = risk
-  ui.routeRisk.className = riskClass
-  ui.relayValue.textContent = `${linkedNodes.length} / ${nodes.length}`
-  ui.relayValue.className = linkedNodes.length ? 'ready-value' : 'danger-value'
+  ui.routeLength.textContent = `${routeStatus.length.toFixed(2)} / ${MAX_ROUTE_LENGTH.toFixed(2)}`
+  ui.routeLength.className = routeStatus.remaining >= 0 ? 'ready-value' : 'danger-value'
+  ui.relayValue.textContent = `${routeStatus.linked} / ${routeStatus.total}`
+  ui.relayValue.className =
+    routeStatus.linked === routeStatus.total ? 'ready-value' : 'danger-value'
   ui.traceValue.textContent =
     round === 1
-      ? '新路线'
+      ? routeStatus.ready
+        ? '路线有效'
+        : '路线无效'
       : routeRepeated
-        ? `重复 ${Math.round(similarity * 100)}%`
-        : `变化 ${Math.round((1 - similarity) * 100)}%`
+        ? '旧路径 · 塔伤 +60%'
+        : '路径已变化'
   ui.traceValue.className = routeRepeated ? 'danger-value' : 'ready-value'
-  ui.routeReady.textContent =
-    linkedNodes.length === 0
-      ? '未接入中继'
-      : linkedNodes.length === 1
-        ? '已接入 1 个 · 伤害 50%'
-        : '已接入 2 个 · 完整伤害'
-  ui.routeReady.className = linkedNodes.length ? 'ready-value' : 'danger-value'
-  ui.aiReadout.textContent = `${analysis.name} · ${defenseReason(analysis)}`
-
-  ui.signalStrip.innerHTML = nodes
-    .map((node) => {
-      const definition = TACTICAL_NODE_DEFS[node.kind]
-      const linked = linkedNodes.includes(node.id)
-      return `<button type="button" class="signal-chip ${linked ? 'linked' : ''} ${node.activated ? 'activated' : ''}" data-link-node="${node.id}" ${isPlanning ? '' : 'disabled'}>
-        <strong>${definition.name}</strong><small>${node.activated ? '已吸收' : linked ? '已接入' : '接入'}</small>
-      </button>`
-    })
-    .join('')
+  ui.defenseCopy.textContent = routeRepeated
+    ? '重复路径已被加固，所有塔伤提高 60%'
+    : round > 1
+      ? '红色火力路段已按上轮路径重布'
+      : '红色路段处于火力覆盖内'
 
   ui.mutationRack.innerHTML = ownedMutations.length
-    ? `<span>进化 ${ownedMutations.length}</span><div>${ownedMutations
+    ? `<span>自动进化</span><div>${ownedMutations
         .map((id) => {
           const mutation = MUTATION_DEFS[id]
-          return `<i style="--mutation:${mutation.accent}" title="${mutation.name} · ${mutation.detail}">${mutation.name}</i>`
+          return `<i title="${mutation.name} · ${mutation.detail}">${mutation.name}</i>`
         })
         .join('')}</div>`
-    : '<span>进化</span><small>无</small>'
+    : '<span>自动进化</span><small>无</small>'
 
   ui.queue.innerHTML = queue.length
     ? queue
@@ -482,87 +383,46 @@ function updateUI(): void {
             </button>`
         )
         .join('')
-    : '<div class="queue-empty"><p>购买顺序就是部署顺序</p></div>'
+    : '<div class="queue-empty"><p>点击单位加入队列</p></div>'
 
   ui.market.querySelectorAll<HTMLButtonElement>('[data-unit]').forEach((button) => {
     const kind = button.dataset.unit as UnitKind
-    const definition = unitDefinition(kind, ownedMutations)
     const cost = unitCost(kind, ownedMutations)
     const count = UNIT_DEFS[kind].count + (kind === 'slime' ? modifiers.slimeBonus : 0)
     const countLabel = button.querySelector('em')
-    const statLabel = button.querySelector('small')
     const costLabel = button.querySelector('.unit-cost')
     if (countLabel) countLabel.textContent = `×${count}`
-    if (statLabel) {
-      statLabel.textContent =
-        kind === 'tank'
-          ? `重装 · 核心伤害 ${definition.breach}`
-          : kind === 'swift'
-            ? `抢占中继 · 速度 ${Math.round(definition.speed * 1000)}`
-            : `消耗炮击 · 生命 ${definition.hp}`
-    }
     if (costLabel) costLabel.textContent = cost.toString()
-    button.disabled = !isPlanning || credits < cost || queue.length >= 6
+    button.disabled = !isPlanning || credits < cost || queue.length >= MAX_BATCHES
   })
-
-  document.querySelectorAll<HTMLButtonElement>('[data-route]').forEach((button) => {
-    button.disabled = !isPlanning
-  })
-  document.querySelectorAll<HTMLButtonElement>('[data-formation]').forEach((button) => {
-    button.disabled = !isPlanning
-  })
-  ui.commandChoice.querySelectorAll<HTMLButtonElement>('[data-command]').forEach((button) => {
-    button.disabled = !isPlanning
-    button.classList.toggle('active', button.dataset.command === selectedCommand)
-  })
-  ui.commandDescription.textContent = COMMAND_DEFS[selectedCommand].detail
-  ui.matchupCopy.textContent = matchup.detail
-  ui.matchupCopy.className = `matchup ${matchup.state}`
 
   const totalUnits = queue.reduce(
     (sum, batch) =>
       sum + UNIT_DEFS[batch.kind].count + (batch.kind === 'slime' ? modifiers.slimeBonus : 0),
     0
   )
-  const routeReady = linkedNodes.length > 0
-  const canLaunch = isPlanning && queue.length > 0 && routeReady
+  const armyReady = queue.length >= MIN_BATCHES
+  const canLaunch = isPlanning && armyReady && routeStatus.ready
   ui.launch.disabled = !canLaunch
   ui.readyLight.classList.toggle('ready', canLaunch)
-  ui.readyTitle.textContent = !queue.length
-    ? '等待编队'
-    : !routeReady
-      ? '路线未接入中继'
-      : `${totalUnits} 个单位就绪`
-  ui.readyCopy.textContent = !queue.length
-    ? '至少购买一个单位批次'
-    : !routeReady
-      ? '拖动路标或点击一个中继'
-      : routeRepeated
-        ? `重复路线 · 塔伤 +30% · 核心伤害 ${linkedNodes.length === 1 ? '50%' : '100%'}`
-        : `${queue.length} 个批次 · 核心伤害 ${linkedNodes.length === 1 ? '50%' : '100%'}`
-  const launchCopy = ui.launch.querySelector('small')
-  if (launchCopy) {
-    launchCopy.textContent = !routeReady
-      ? '路线接入中继后可出发'
-      : linkedNodes.length === 1
-        ? '核心护盾仍减伤 50%'
-        : '核心护盾已完全关闭'
-  }
+  ui.readyTitle.textContent =
+    routeStatus.linked < routeStatus.total
+      ? `还差 ${routeStatus.total - routeStatus.linked} 个中继`
+      : routeStatus.remaining < 0
+        ? `路线超出 ${Math.abs(routeStatus.remaining).toFixed(2)}`
+        : !armyReady
+          ? `还需 ${MIN_BATCHES - queue.length} 批单位`
+          : `${totalUnits} 个单位就绪`
+  ui.readyCopy.textContent = canLaunch ? '可以出发' : '拖路线或调整队列'
   ui.phase.textContent = phase === 'battle' ? '突破中' : phase === 'planning' ? '规划中' : '结算中'
   ui.mapHint.classList.toggle('hidden', !isPlanning)
   ui.speed.disabled = phase !== 'battle'
-  ui.command.disabled = phase !== 'battle' || commandUsed
-  ui.command.classList.toggle('used', commandUsed)
-  const commandDefinition = COMMAND_DEFS[selectedCommand]
-  ui.command.innerHTML = commandUsed
-    ? `<span>${commandDefinition.name}</span><small>已使用</small>`
-    : `<span>${commandDefinition.name}</span><small>1 次</small>`
-  ui.command.setAttribute('aria-label', `释放${commandDefinition.name}`)
   ui.waveProgress.toggleAttribute('hidden', phase !== 'battle')
   app.dataset.phase = phase
   app.dataset.round = round.toString()
   app.dataset.core = core.toString()
-  app.dataset.relays = linkedNodes.length.toString()
+  app.dataset.relays = routeStatus.linked.toString()
+  app.dataset.routeReady = routeStatus.ready.toString()
   app.dataset.doctrine = analysis.mode
   app.dataset.repeated = routeRepeated.toString()
 }
@@ -573,49 +433,9 @@ function showToast(message: string, tone: 'neutral' | 'success' | 'danger' = 'ne
   toastTimer = 1.8
 }
 
-function setRoutePreset(name: string): void {
-  if (phase !== 'planning') return
-  const presets: Record<string, number[]> = {
-    direct: [0.5, 0.5, 0.5],
-    high: [0.25, 0.17, 0.3],
-    low: [0.7, 0.83, 0.68],
-    zigzag: [0.27, 0.69, 0.32]
-  }
-  const values = presets[name]
-  if (!values) return
-  values.forEach((value, index) => {
-    const point = route[index + 1]
-    if (point) point.y = value
-  })
-  document.querySelectorAll('[data-route]').forEach((button) => {
-    button.classList.toggle('active', (button as HTMLElement).dataset.route === name)
-  })
-  selectedWaypoint = 2
-  rebuildDefense()
-  updateUI()
-  sounds.play('click')
-}
-
-function linkNodeToRoute(id: number): void {
-  if (phase !== 'planning') return
-  const node = nodes.find((candidate) => candidate.id === id)
-  if (!node) return
-  const editable = route.slice(1, -1)
-  const nearestIndex = editable.reduce(
-    (best, point, index) =>
-      Math.abs(point.x - node.position.x) < Math.abs((editable[best]?.x ?? 0) - node.position.x)
-        ? index
-        : best,
-    0
-  )
-  moveWaypoint(nearestIndex + 1, node.position)
-  showToast(`${TACTICAL_NODE_DEFS[node.kind].name}已接入路线`, 'success')
-  sounds.play('click')
-}
-
 function addBatch(kind: UnitKind): void {
   const cost = unitCost(kind, ownedMutations)
-  if (phase !== 'planning' || credits < cost || queue.length >= 6) return
+  if (phase !== 'planning' || credits < cost || queue.length >= MAX_BATCHES) return
   credits -= cost
   queue.push({ id: nextBatchId, kind })
   nextBatchId += 1
@@ -635,34 +455,11 @@ function removeBatch(id: number): void {
   sounds.play('click')
 }
 
-function setFormation(nextFormation: Formation): void {
-  if (phase !== 'planning') return
-  formation = nextFormation
-  const copy: Record<Formation, string> = {
-    rush: '紧密节奏',
-    steady: '标准节奏',
-    split: '分批节奏'
-  }
-  ui.formationCopy.textContent = copy[formation]
-  document.querySelectorAll('[data-formation]').forEach((button) => {
-    button.classList.toggle('active', (button as HTMLElement).dataset.formation === formation)
-  })
-  rebuildDefense()
-  updateUI()
-  sounds.play('click')
-}
-
-function setCommand(command: CommandKind): void {
-  if (phase !== 'planning') return
-  selectedCommand = command
-  updateUI()
-  sounds.play('click')
-}
-
 function launchWave(): void {
-  if (phase !== 'planning' || queue.length === 0 || linkedNodeIds(route, nodes).length === 0) return
+  const routeStatus = evaluateRoutePlan(route, nodes, MAX_ROUTE_LENGTH)
+  if (phase !== 'planning' || queue.length < MIN_BATCHES || !routeStatus.ready) return
   phase = 'battle'
-  spawnPlan = buildSpawnPlan(queue, formation, ownedMutations)
+  spawnPlan = buildSpawnPlan(queue, 'steady', ownedMutations)
   spawnIndex = 0
   waveElapsed = 0
   waveStats = { deployed: spawnPlan.length, destroyed: 0, breaches: 0, coreDamage: 0, nodes: 0 }
@@ -670,7 +467,6 @@ function launchWave(): void {
   particles = []
   shots = []
   labels = []
-  commandUsed = false
   jammedUntil = 0
   globalBoostUntil = 0
   nodes.forEach((node) => (node.activated = false))
@@ -737,17 +533,12 @@ function damageUnit(
   }
   const ignoresArmor = tower.kind === 'cannon' ? 0.55 : 0
   const armor = definition.armor * (1 - ignoresArmor)
-  const matchup = formationMatchup(formation, analysis.mode)
-  const repetitionPenalty = routeRepeated ? 1.3 : 1
-  const splashMultiplier = isSplash ? matchup.splashMultiplier : 1
-  target.hp -=
-    damage * matchup.damageMultiplier * splashMultiplier * repetitionPenalty * (1 - armor)
+  const repetitionPenalty = routeRepeated ? 1.6 : 1
+  const splashMultiplier = isSplash ? 1.08 : 1
+  target.hp -= damage * splashMultiplier * repetitionPenalty * (1 - armor)
   target.flash = 0.12
   if (tower.kind === 'frost') {
-    target.slowUntil = Math.max(
-      target.slowUntil,
-      waveElapsed + 1.25 * matchup.slowMultiplier * repetitionPenalty
-    )
+    target.slowUntil = Math.max(target.slowUntil, waveElapsed + 1.25 * repetitionPenalty)
   }
   if (target.hp > 0) return
 
@@ -755,7 +546,7 @@ function damageUnit(
   waveStats.destroyed += 1
   const position = pointOnRoute(route, target.progress)
   burst(position, definition.color, target.kind === 'tank' ? 14 : 8, 0.12)
-  labels.push({ x: position.x, y: position.y, text: 'SIGNAL LOST', color: '#86918d', life: 0.8 })
+  labels.push({ x: position.x, y: position.y, text: '已消灭', color: '#86918d', life: 0.8 })
   score += Math.round(target.progress * 110)
 }
 
@@ -789,54 +580,6 @@ function attackWithTower(tower: RuntimeTower, target: RuntimeUnit): void {
   }
 }
 
-function activateCommand(): void {
-  if (phase !== 'battle' || commandUsed) return
-  commandUsed = true
-  const command = COMMAND_DEFS[selectedCommand]
-
-  if (selectedCommand === 'blackout') {
-    const duration = modifiersFor(ownedMutations).empDuration
-    jammedUntil = Math.max(jammedUntil, waveElapsed + duration)
-    for (const tower of towers) {
-      tower.cooldown = Math.max(tower.cooldown, duration * 0.35)
-      burst(tower.position, command.color, 8, 0.075)
-    }
-    labels.push({
-      x: 0.5,
-      y: 0.12,
-      text: `静默 ${duration.toFixed(1)} 秒`,
-      color: command.color,
-      life: 1.2
-    })
-    showToast(`防线停火 ${duration.toFixed(1)} 秒`, 'success')
-  } else if (selectedCommand === 'overdrive') {
-    const duration = 2.4 * modifiersFor(ownedMutations).nodeMultiplier
-    globalBoostUntil = Math.max(globalBoostUntil, waveElapsed + duration)
-    for (const unit of units) {
-      if (unit.alive) burst(pointOnRoute(route, unit.progress), command.color, 5, 0.06)
-    }
-    labels.push({ x: 0.5, y: 0.12, text: '全军过载', color: command.color, life: 1.2 })
-    showToast(`全军加速 ${duration.toFixed(1)} 秒`, 'success')
-  } else {
-    let healed = 0
-    for (const unit of units) {
-      if (!unit.alive) continue
-      const before = unit.hp
-      unit.hp = Math.min(unit.maxHp, unit.hp + unit.maxHp * 0.38)
-      healed += unit.hp - before
-      burst(pointOnRoute(route, unit.progress), command.color, 5, 0.055)
-    }
-    labels.push({ x: 0.5, y: 0.12, text: '全军修复', color: command.color, life: 1.2 })
-    showToast(
-      healed > 1 ? `全军恢复 ${Math.round(healed)} 生命` : '当前没有可修复的单位',
-      'success'
-    )
-  }
-  ui.announcer.textContent = `${command.name}已释放。${command.short}。`
-  updateUI()
-  sounds.play('launch')
-}
-
 function activateNode(node: RuntimeNode): void {
   if (node.activated) return
   node.activated = true
@@ -860,7 +603,7 @@ function activateNode(node: RuntimeNode): void {
   labels.push({
     x: node.position.x,
     y: node.position.y - 0.035,
-    text: `${definition.code} ACQUIRED`,
+    text: `${definition.name}已触发`,
     color: definition.color,
     life: 1.25
   })
@@ -880,19 +623,13 @@ function updateBattle(delta: number): void {
   }
 
   const lengthScale = routeLength(route) / 1.1
-  const formationSpeed: Record<Formation, number> = { rush: 1.08, steady: 1, split: 0.96 }
   for (const unit of units) {
     if (!unit.alive) continue
     const definition = unitDefinition(unit.kind, ownedMutations)
     const slowed = unit.slowUntil > waveElapsed
     const boosted = globalBoostUntil > waveElapsed
     unit.progress +=
-      (definition.speed *
-        formationSpeed[formation] *
-        (slowed ? 0.55 : 1) *
-        (boosted ? 1.52 : 1) *
-        delta) /
-      lengthScale
+      (definition.speed * (slowed ? 0.55 : 1) * (boosted ? 1.52 : 1) * delta) / lengthScale
     unit.flash = Math.max(0, unit.flash - delta)
 
     if (unit.progress >= 1) {
@@ -926,7 +663,6 @@ function updateBattle(delta: number): void {
       if (stolen > 0) {
         credits += stolen
         ui.credits.textContent = credits.toString()
-        ui.budget.textContent = credits.toString()
       }
       showToast(
         waveStats.breaches > 1 ? `突破连锁 ×${waveStats.breaches}` : '核心已突破',
@@ -1013,11 +749,10 @@ function finishWave(): void {
   history = {
     ...composition,
     repeatedRoute: routeRepeated,
-    breaches: waveStats.breaches,
-    formation
+    breaches: waveStats.breaches
   }
   previousRoute = route.map((point) => ({ ...point }))
-  const reward = 72 + round * 8 + waveStats.coreDamage * 4 + Math.max(0, waveStats.nodes - 1) * 22
+  const reward = 58 + round * 6 + waveStats.coreDamage * 3
   credits += reward
 
   if (round >= MAX_ROUNDS) {
@@ -1025,32 +760,22 @@ function finishWave(): void {
     return
   }
 
-  const nextAnalysis = analyzeArmy([], history)
-  byId('summary-index').textContent = `第 ${round} 回合报告`
-  byId('summary-title').textContent = waveStats.breaches ? '防线正在重构' : '入侵信号已中断'
+  byId('summary-index').textContent = `第 ${round} 回合`
+  byId('summary-title').textContent = waveStats.breaches ? '突破完成' : '全部被拦截'
   byId('summary-copy').textContent = waveStats.breaches
-    ? `核心受到 ${waveStats.coreDamage} 点伤害；${waveStats.destroyed} 个单位被防线截获。`
-    : `没有单位完成突破。下一轮需要改路线、换节奏，或调整指令时机。`
+    ? `核心受到 ${waveStats.coreDamage} 点伤害，${waveStats.destroyed} 个单位被消灭。`
+    : '没有单位抵达核心。下一轮必须换路线或调整出兵顺序。'
   byId('stat-deployed').textContent = waveStats.deployed.toString()
   byId('stat-breaches').textContent = waveStats.breaches.toString()
   byId('stat-damage').textContent = waveStats.coreDamage.toString()
   byId('stat-reward').textContent = `+${reward}`
-  byId('next-ai-name').textContent = nextAnalysis.name
-  byId('next-ai-copy').textContent = defenseReason(nextAnalysis)
-  currentMutationOffers = mutationOffers(round, ownedMutations)
-  pendingMutation = null
-  ui.evolutionPanel.hidden = false
-  ui.evolutionGrid.innerHTML = currentMutationOffers
-    .map(
-      (
-        mutation
-      ) => `<button type="button" data-mutation="${mutation.id}" style="--evolution:${mutation.accent}">
-        <strong>${mutation.name}</strong><small>${mutation.detail}</small>
-      </button>`
-    )
-    .join('')
-  ui.continueButton.disabled = true
-  ui.continueButton.innerHTML = '先选择进化 <span>→</span>'
+  lastEarnedMutation = mutationOffers(round, ownedMutations)[0] ?? null
+  if (lastEarnedMutation) ownedMutations.push(lastEarnedMutation.id)
+  ui.earnedUpgrade.hidden = !lastEarnedMutation
+  byId('earned-upgrade-name').textContent = lastEarnedMutation?.name ?? '无'
+  byId('earned-upgrade-copy').textContent = lastEarnedMutation?.detail ?? '没有新的进化。'
+  ui.continueButton.disabled = false
+  ui.continueButton.innerHTML = '下一回合 <span>→</span>'
   ui.summary.classList.add('open')
   ui.summary.setAttribute('aria-hidden', 'false')
   updateUI()
@@ -1065,39 +790,24 @@ function finishGame(victory: boolean): void {
     localStorage.setItem('breach-protocol-best', bestScore.toString())
   }
   byId('summary-index').textContent = victory ? '入侵完成' : '入侵终止'
-  byId('summary-title').textContent = victory ? '核心已被吞噬' : 'AI 守住了最后防线'
+  byId('summary-title').textContent = victory ? '核心已摧毁' : '突破失败'
   byId('summary-copy').textContent = victory
     ? `你在第 ${round} 回合完成突破。最终情报评分 ${formatScore(score)}。`
-    : `核心还剩 ${core} 点完整度。AI 已封存这次入侵样本。`
+    : `四轮结束，核心还剩 ${core} 点。`
   byId('stat-deployed').textContent = waveStats.deployed.toString()
   byId('stat-breaches').textContent = waveStats.breaches.toString()
   byId('stat-damage').textContent = waveStats.coreDamage.toString()
   byId('stat-reward').textContent = formatScore(score)
-  byId('next-ai-name').textContent = victory ? '样本已污染' : '防线保持在线'
-  byId('next-ai-copy').textContent = victory
-    ? 'AI 无法为未知路线建立稳定模型。'
-    : '尝试混入高速单位，并改变连续两回合的路线。'
-  ui.evolutionPanel.hidden = true
-  pendingMutation = null
+  ui.earnedUpgrade.hidden = true
+  lastEarnedMutation = null
   ui.continueButton.disabled = false
   ui.continueButton.innerHTML = '再次入侵 <span>↻</span>'
   ui.summary.classList.add('open')
   ui.summary.setAttribute('aria-hidden', 'false')
-  ui.announcer.textContent = victory ? '任务完成，AI 核心已摧毁。' : '任务失败，AI 守住了核心。'
+  ui.announcer.textContent = victory ? '任务完成，核心已摧毁。' : '任务失败，防线守住了核心。'
   showToast(victory ? '核心已离线' : '入侵已终止', victory ? 'success' : 'danger')
   updateUI()
   sounds.play(victory ? 'win' : 'hit')
-}
-
-function selectMutation(id: MutationId): void {
-  if (phase !== 'summary' || !currentMutationOffers.some((offer) => offer.id === id)) return
-  pendingMutation = id
-  ui.evolutionGrid.querySelectorAll<HTMLButtonElement>('[data-mutation]').forEach((button) => {
-    button.classList.toggle('selected', button.dataset.mutation === id)
-  })
-  ui.continueButton.disabled = false
-  ui.continueButton.innerHTML = `吸收「${MUTATION_DEFS[id].name}」 <span>→</span>`
-  sounds.play('click')
 }
 
 function advanceRound(): void {
@@ -1107,9 +817,6 @@ function advanceRound(): void {
     ui.summary.setAttribute('aria-hidden', 'true')
     return
   }
-  if (!pendingMutation) return
-  ownedMutations.push(pendingMutation)
-  pendingMutation = null
   round += 1
   phase = 'planning'
   queue = []
@@ -1121,7 +828,6 @@ function advanceRound(): void {
   spawnIndex = 0
   waveElapsed = 0
   waveStats = { deployed: 0, destroyed: 0, breaches: 0, coreDamage: 0, nodes: 0 }
-  commandUsed = false
   jammedUntil = 0
   globalBoostUntil = 0
   selectedWaypoint = 2
@@ -1130,29 +836,25 @@ function advanceRound(): void {
   rebuildDefense()
   ui.summary.classList.remove('open')
   ui.summary.setAttribute('aria-hidden', 'true')
-  showToast(`第 ${round} 回合 · ${analysis.name}`, 'neutral')
-  ui.announcer.textContent = `第 ${round} 回合规划开始。战术指令已重新充能。`
+  showToast(`第 ${round} 回合 · 防线已重布`, 'neutral')
+  ui.announcer.textContent = `第 ${round} 回合规划开始。请重新规划路线和出兵顺序。`
   updateUI()
 }
 
 function resetGame(): void {
   phase = 'planning'
   round = 1
-  credits = 180
+  credits = STARTING_CREDITS
   core = MAX_CORE
   score = 0
   queue = []
   nextBatchId = 1
-  formation = 'steady'
   route = DEFAULT_ROUTE.map((point) => ({ ...point }))
   defenseRoute = DEFAULT_ROUTE.map((point) => ({ ...point }))
   previousRoute = null
   history = undefined
   ownedMutations = []
-  pendingMutation = null
-  currentMutationOffers = []
-  commandUsed = false
-  selectedCommand = 'blackout'
+  lastEarnedMutation = null
   routeRepeated = false
   jammedUntil = 0
   globalBoostUntil = 0
@@ -1165,15 +867,8 @@ function resetGame(): void {
   particles = []
   shots = []
   labels = []
-  ui.evolutionPanel.hidden = false
-  ui.continueButton.disabled = true
-  document.querySelectorAll('[data-route]').forEach((button) => {
-    button.classList.toggle('active', (button as HTMLElement).dataset.route === 'zigzag')
-  })
-  document.querySelectorAll('[data-formation]').forEach((button) => {
-    button.classList.toggle('active', (button as HTMLElement).dataset.formation === 'steady')
-  })
-  ui.formationCopy.textContent = '标准节奏'
+  ui.earnedUpgrade.hidden = false
+  ui.continueButton.disabled = false
   rebuildDefense()
   updateUI()
 }
@@ -1238,10 +933,22 @@ function drawRoute(): void {
   context.strokeStyle = '#282a23'
   context.lineWidth = Math.max(16, canvasHeight * 0.04)
   context.stroke()
-  traceRoute()
-  context.strokeStyle = phase === 'battle' ? '#aab88d' : '#747d66'
-  context.lineWidth = 1
-  context.stroke()
+  context.lineWidth = 2
+  let previous = px(pointOnRoute(route, 0))
+  for (let index = 1; index <= 90; index += 1) {
+    const progress = index / 90
+    const point = pointOnRoute(route, progress)
+    const current = px(point)
+    const exposed = towers.some(
+      (tower) => Math.hypot(point.x - tower.position.x, point.y - tower.position.y) <= tower.range
+    )
+    context.strokeStyle = exposed ? '#b06159' : '#8d9879'
+    context.beginPath()
+    context.moveTo(previous.x, previous.y)
+    context.lineTo(current.x, current.y)
+    context.stroke()
+    previous = current
+  }
   context.restore()
 }
 
@@ -1506,7 +1213,6 @@ function moveWaypoint(index: number, pointer: Point): void {
   const [minX, maxX] = xBounds[index] ?? [waypoint.x, waypoint.x]
   waypoint.x = clamp(pointer.x, minX, maxX)
   waypoint.y = clamp(pointer.y, 0.13, 0.87)
-  document.querySelectorAll('[data-route]').forEach((button) => button.classList.remove('active'))
   rebuildDefense()
   updateUI()
 }
@@ -1554,10 +1260,6 @@ canvas.addEventListener('keydown', (event) => {
   moveWaypoint(selectedWaypoint, next)
 })
 
-document.querySelectorAll<HTMLButtonElement>('[data-route]').forEach((button) => {
-  button.addEventListener('click', () => setRoutePreset(button.dataset.route ?? 'zigzag'))
-})
-
 ui.market.addEventListener('click', (event) => {
   const button = (event.target as HTMLElement).closest<HTMLButtonElement>('[data-unit]')
   if (button?.dataset.unit) addBatch(button.dataset.unit as UnitKind)
@@ -1569,28 +1271,8 @@ ui.queue.addEventListener('click', (event) => {
   if (Number.isFinite(id)) removeBatch(id)
 })
 
-document.querySelectorAll<HTMLButtonElement>('[data-formation]').forEach((button) => {
-  button.addEventListener('click', () => setFormation(button.dataset.formation as Formation))
-})
-
-ui.signalStrip.addEventListener('click', (event) => {
-  const button = (event.target as HTMLElement).closest<HTMLButtonElement>('[data-link-node]')
-  const id = Number(button?.dataset.linkNode)
-  if (Number.isFinite(id)) linkNodeToRoute(id)
-})
-
-ui.commandChoice.addEventListener('click', (event) => {
-  const button = (event.target as HTMLElement).closest<HTMLButtonElement>('[data-command]')
-  if (button?.dataset.command) setCommand(button.dataset.command as CommandKind)
-})
-
 ui.launch.addEventListener('click', launchWave)
 ui.continueButton.addEventListener('click', advanceRound)
-ui.command.addEventListener('click', activateCommand)
-ui.evolutionGrid.addEventListener('click', (event) => {
-  const button = (event.target as HTMLElement).closest<HTMLButtonElement>('[data-mutation]')
-  if (button?.dataset.mutation) selectMutation(button.dataset.mutation as MutationId)
-})
 
 byId<HTMLButtonElement>('reset-button').addEventListener('click', () => {
   resetGame()
@@ -1620,7 +1302,6 @@ window.addEventListener('keydown', (event) => {
     event.preventDefault()
     launchWave()
   }
-  if (event.code === 'KeyE' && phase === 'battle') activateCommand()
 })
 
 window.addEventListener('resize', resizeCanvas)
