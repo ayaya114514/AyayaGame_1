@@ -143,7 +143,7 @@ export const MUTATION_DEFS: Record<MutationId, MutationDefinition> = {
     id: 'brood_discount',
     name: '高效孵化',
     code: 'COST −06',
-    detail: '所有怪物批次的购买价格降低 6 DATA。',
+    detail: '所有怪物批次的购买价格降低 6 资源。',
     accent: '#76f4cf'
   },
   neural_drive: {
@@ -157,7 +157,7 @@ export const MUTATION_DEFS: Record<MutationId, MutationDefinition> = {
     id: 'signal_leech',
     name: '数据寄生',
     code: 'LEECH +02',
-    detail: '每次突破核心都会掠夺 2 DATA。',
+    detail: '每次突破核心都会掠夺 2 资源。',
     accent: '#ff9fcb'
   },
   emp_overload: {
