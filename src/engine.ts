@@ -1,6 +1,7 @@
 export type UnitKind = 'slime' | 'swift' | 'tank'
 export type TowerKind = 'pulse' | 'frost' | 'cannon'
 export type Formation = 'rush' | 'steady' | 'split'
+export type CommandKind = 'blackout' | 'overdrive' | 'mend'
 export type MutationId =
   | 'slime_bloom'
   | 'swift_phase'
@@ -59,6 +60,15 @@ export type AIAnalysis = {
   accent: string
 }
 
+export type FormationMatchup = {
+  state: 'favored' | 'neutral' | 'exposed'
+  label: string
+  detail: string
+  damageMultiplier: number
+  slowMultiplier: number
+  splashMultiplier: number
+}
+
 export type MutationDefinition = {
   id: MutationId
   name: string
@@ -84,6 +94,13 @@ export type TacticalNodeBlueprint = {
   kind: TacticalNodeKind
   position: Point
   radius: number
+}
+
+export type CommandDefinition = {
+  name: string
+  short: string
+  detail: string
+  color: string
 }
 
 export type TowerBlueprint = {
@@ -173,6 +190,27 @@ export const TACTICAL_NODE_DEFS: Record<
     code: 'JAM',
     detail: '首个抵达单位使所有防御塔离线。',
     color: '#7bdfff'
+  }
+}
+
+export const COMMAND_DEFS: Record<CommandKind, CommandDefinition> = {
+  blackout: {
+    name: '静默脉冲',
+    short: '停火 1.8 秒',
+    detail: '让全部防御塔暂时离线。适合穿越重叠射界。',
+    color: '#83d7ff'
+  },
+  overdrive: {
+    name: '过载冲刺',
+    short: '全军加速 2.4 秒',
+    detail: '短时间提高全军速度。适合冲过迟滞防线。',
+    color: '#ffd56a'
+  },
+  mend: {
+    name: '再生指令',
+    short: '恢复 38% 生命',
+    detail: '修复场上所有存活单位。适合保护铁甲兽。',
+    color: '#7ee2ae'
   }
 }
 
@@ -295,6 +333,51 @@ export function routeSignature(points: Point[]): string {
     .join('-')
 }
 
+function distanceToSegment(point: Point, start: Point, end: Point): number {
+  const dx = end.x - start.x
+  const dy = end.y - start.y
+  const lengthSquared = dx * dx + dy * dy
+  if (lengthSquared === 0) return Math.hypot(point.x - start.x, point.y - start.y)
+  const projection = clamp(
+    ((point.x - start.x) * dx + (point.y - start.y) * dy) / lengthSquared,
+    0,
+    1
+  )
+  return Math.hypot(point.x - (start.x + dx * projection), point.y - (start.y + dy * projection))
+}
+
+export function routeTouchesNode(points: Point[], node: TacticalNodeBlueprint): boolean {
+  for (let index = 1; index < points.length; index += 1) {
+    const start = points[index - 1]
+    const end = points[index]
+    if (start && end && distanceToSegment(node.position, start, end) <= node.radius * 0.72) {
+      return true
+    }
+  }
+  return false
+}
+
+export function linkedNodeIds(points: Point[], nodes: TacticalNodeBlueprint[]): number[] {
+  return nodes.filter((node) => routeTouchesNode(points, node)).map((node) => node.id)
+}
+
+export function routeSimilarity(points: Point[], previous: Point[] | null): number {
+  if (!previous || points.length !== previous.length || points.length < 3) return 0
+  const editable = points.slice(1, -1)
+  const previousEditable = previous.slice(1, -1)
+  const averageDelta =
+    editable.reduce((sum, point, index) => {
+      const oldPoint = previousEditable[index]
+      return sum + (oldPoint ? Math.hypot(point.x - oldPoint.x, point.y - oldPoint.y) : 1)
+    }, 0) / Math.max(editable.length, 1)
+  return clamp(1 - averageDelta / 0.28, 0, 1)
+}
+
+export function coreDamageFor(breach: number, activatedNodes: number): number {
+  if (activatedNodes <= 0) return 0
+  return breach * (activatedNodes >= 2 ? 1 : 0.5)
+}
+
 export function analyzeArmy(
   queue: ArmyBatch[],
   history?: AIHistory,
@@ -311,8 +394,30 @@ export function analyzeArmy(
     .filter((batch) => batch.kind === 'tank')
     .reduce((sum, batch) => sum + UNIT_DEFS[batch.kind].count, 0)
 
-  const swiftSignal = swiftUnits / totalUnits + (history?.swiftRatio ?? 0) * 0.72
-  const tankSignal = tankUnits / totalUnits + (history?.tankRatio ?? 0) * 0.72
+  if (history?.repeatedRoute) {
+    return {
+      mode: 'lockdown',
+      name: '路径封锁',
+      detail: 'AI 已锁定上一条路线，沿旧路径增设交叉火力。重复走线会让塔伤提高 30%。',
+      counter: '破解：移动至少两个路标，或用静默脉冲穿越封锁区。',
+      mix: { pulse: 0.5, frost: 0.26, cannon: 0.24 },
+      accent: '#f07a72'
+    }
+  }
+
+  if (history?.formation === 'rush' && history.breaches >= 2) {
+    return {
+      mode: 'suppress',
+      name: '集群清除',
+      detail: 'AI 记住了上一轮密集冲锋，范围火力正在覆盖旧路线。',
+      counter: '破解：改用分批，拉开单位间距来削弱溅射伤害。',
+      mix: { pulse: 0.34, frost: 0.14, cannon: 0.52 },
+      accent: '#ed8a68'
+    }
+  }
+
+  const swiftSignal = history ? history.swiftRatio : swiftUnits / totalUnits
+  const tankSignal = history ? history.tankRatio : tankUnits / totalUnits
 
   if (swiftSignal >= 0.42) {
     return {
@@ -336,7 +441,7 @@ export function analyzeArmy(
     }
   }
 
-  if (formation === 'rush' && queue.length >= 4 && slimeUnits / totalUnits >= 0.55) {
+  if (!history && formation === 'rush' && queue.length >= 4 && slimeUnits / totalUnits >= 0.55) {
     return {
       mode: 'suppress',
       name: '集群清除',
@@ -347,17 +452,6 @@ export function analyzeArmy(
     }
   }
 
-  if (history?.repeatedRoute) {
-    return {
-      mode: 'lockdown',
-      name: '路径封锁',
-      detail: '路线特征重复，AI 已在上次突破点建立交叉火力。',
-      counter: '破解：移动至少两个路标，争夺本轮战场信标。',
-      mix: { pulse: 0.5, frost: 0.26, cannon: 0.24 },
-      accent: '#ff7188'
-    }
-  }
-
   return {
     mode: 'balanced',
     name: '均衡戒备',
@@ -365,6 +459,67 @@ export function analyzeArmy(
     counter: '破解：观察射界后重新布线，不要把所有单位放在同一批次。',
     mix: { pulse: 0.52, frost: 0.28, cannon: 0.2 },
     accent: '#ff7188'
+  }
+}
+
+export function formationMatchup(formation: Formation, mode: AIAnalysis['mode']): FormationMatchup {
+  if (mode === 'pierce' && formation === 'rush') {
+    return {
+      state: 'favored',
+      label: '节奏占优',
+      detail: '密集冲锋能挤压穿甲炮的长冷却。',
+      damageMultiplier: 0.86,
+      slowMultiplier: 1,
+      splashMultiplier: 1.16
+    }
+  }
+  if (mode === 'suppress' && formation === 'split') {
+    return {
+      state: 'favored',
+      label: '节奏占优',
+      detail: '分批部署将范围溅射降低 58%。',
+      damageMultiplier: 1,
+      slowMultiplier: 1,
+      splashMultiplier: 0.42
+    }
+  }
+  if (mode === 'intercept' && formation === 'steady') {
+    return {
+      state: 'favored',
+      label: '节奏占优',
+      detail: '标准节奏让迟滞效果更快衰减。',
+      damageMultiplier: 1,
+      slowMultiplier: 0.66,
+      splashMultiplier: 1
+    }
+  }
+  if (mode === 'lockdown' && formation === 'split') {
+    return {
+      state: 'exposed',
+      label: '节奏不利',
+      detail: '分批部队会被封锁区逐个击破。',
+      damageMultiplier: 1.13,
+      slowMultiplier: 1.08,
+      splashMultiplier: 1
+    }
+  }
+  if (mode === 'suppress' && formation === 'rush') {
+    return {
+      state: 'exposed',
+      label: '节奏不利',
+      detail: '密集单位将承受完整范围伤害。',
+      damageMultiplier: 1.06,
+      slowMultiplier: 1,
+      splashMultiplier: 1.28
+    }
+  }
+  return {
+    state: 'neutral',
+    label: '节奏中性',
+    detail: '当前间隔不会明显克制这套防线。',
+    damageMultiplier: 1,
+    slowMultiplier: 1,
+    splashMultiplier: 1
   }
 }
 
@@ -446,7 +601,7 @@ export function generateTowerBlueprints(
   seed = 1
 ): TowerBlueprint[] {
   const random = seededRandom(seed + round * 811)
-  const count = clamp(3 + Math.floor(round / 2) + (analysis.mode === 'lockdown' ? 1 : 0), 3, 6)
+  const count = clamp(4 + Math.floor(round / 2) + (analysis.mode === 'lockdown' ? 1 : 0), 4, 7)
   const towers: TowerBlueprint[] = []
 
   for (let index = 0; index < count; index += 1) {

@@ -3,12 +3,17 @@ import {
   DEFAULT_ROUTE,
   analyzeArmy,
   buildSpawnPlan,
+  coreDamageFor,
+  formationMatchup,
   generateTowerBlueprints,
   generateTacticalNodes,
+  linkedNodeIds,
   modifiersFor,
   mutationOffers,
   pointOnRoute,
   routeLength,
+  routeSimilarity,
+  routeTouchesNode,
   unitCost,
   unitDefinition,
   type ArmyBatch
@@ -21,6 +26,31 @@ describe('route helpers', () => {
     const end = pointOnRoute(DEFAULT_ROUTE, 1)
     expect(start).toEqual(DEFAULT_ROUTE[0])
     expect(end).toEqual(DEFAULT_ROUTE.at(-1))
+  })
+
+  it('detects whether a route actually crosses a tactical node', () => {
+    const onRoute = { id: 1, kind: 'haste' as const, position: { x: 0.5, y: 0.69 }, radius: 0.06 }
+    const offRoute = { id: 2, kind: 'jammer' as const, position: { x: 0.5, y: 0.08 }, radius: 0.06 }
+    expect(routeTouchesNode(DEFAULT_ROUTE, onRoute)).toBe(true)
+    expect(routeTouchesNode(DEFAULT_ROUTE, offRoute)).toBe(false)
+    expect(linkedNodeIds(DEFAULT_ROUTE, [onRoute, offRoute])).toEqual([1])
+  })
+
+  it('treats a copied route as repeated and a changed route as novel', () => {
+    const copy = DEFAULT_ROUTE.map((point) => ({ ...point }))
+    const changed = DEFAULT_ROUTE.map((point, index) => ({
+      ...point,
+      y: index > 0 && index < DEFAULT_ROUTE.length - 1 ? 1 - point.y : point.y
+    }))
+    expect(routeSimilarity(DEFAULT_ROUTE, copy)).toBe(1)
+    expect(routeSimilarity(changed, copy)).toBeLessThan(0.5)
+    expect(routeSimilarity(DEFAULT_ROUTE, null)).toBe(0)
+  })
+
+  it('requires two relays to remove the complete core shield', () => {
+    expect(coreDamageFor(3, 0)).toBe(0)
+    expect(coreDamageFor(3, 1)).toBe(1.5)
+    expect(coreDamageFor(3, 2)).toBe(3)
   })
 })
 
@@ -99,22 +129,48 @@ describe('adaptive defense', () => {
       breaches: 0
     })
     expect(analysis.mode).toBe('lockdown')
-    expect(generateTowerBlueprints(DEFAULT_ROUTE, 1, analysis, 42)).toHaveLength(4)
+    expect(generateTowerBlueprints(DEFAULT_ROUTE, 1, analysis, 42)).toHaveLength(5)
     expect(analysis.counter).toContain('路标')
+  })
+
+  it('responds to the previous successful rush instead of reading the new queue', () => {
+    const analysis = analyzeArmy([{ id: 1, kind: 'tank' }], {
+      swiftRatio: 0,
+      tankRatio: 0,
+      repeatedRoute: false,
+      breaches: 4,
+      formation: 'rush'
+    })
+    expect(analysis.mode).toBe('suppress')
+    expect(analysis.counter).toContain('分批')
   })
 
   it('places more towers in later rounds without leaving the battlefield', () => {
     const analysis = analyzeArmy([])
     const early = generateTowerBlueprints(DEFAULT_ROUTE, 1, analysis, 42)
     const late = generateTowerBlueprints(DEFAULT_ROUTE, 5, analysis, 42)
-    expect(early).toHaveLength(3)
-    expect(late).toHaveLength(5)
+    expect(early).toHaveLength(4)
+    expect(late).toHaveLength(6)
     for (const tower of late) {
       expect(tower.position.x).toBeGreaterThanOrEqual(0.08)
       expect(tower.position.x).toBeLessThanOrEqual(0.92)
       expect(tower.position.y).toBeGreaterThanOrEqual(0.12)
       expect(tower.position.y).toBeLessThanOrEqual(0.88)
     }
+  })
+})
+
+describe('formation matchups', () => {
+  it('lets split deployment sharply reduce suppression splash', () => {
+    const matchup = formationMatchup('split', 'suppress')
+    expect(matchup.state).toBe('favored')
+    expect(matchup.splashMultiplier).toBeLessThan(0.5)
+  })
+
+  it('makes repeated-route lockdown punish isolated split waves', () => {
+    const matchup = formationMatchup('split', 'lockdown')
+    expect(matchup.state).toBe('exposed')
+    expect(matchup.damageMultiplier).toBeGreaterThan(1)
   })
 })
 
