@@ -1,7 +1,7 @@
 {
   "name": "ayaya-game-1",
   "private": true,
-  "version": "3.0.0",
+  "version": "3.1.0",
   "type": "module",
   "scripts": {
     "dev": "vite",

@@ -106,16 +106,11 @@ const app: HTMLDivElement = maybeApp
 
 app.innerHTML = `
   <div class="app-shell">
-    <header class="topbar">
+    <header class="stage-header">
       <a class="brand" href="." aria-label="Ayaya Breach Protocol 首页">
         <strong>Ayaya</strong>
-        <span>Breach Protocol</span>
+        <span>BREACH</span>
       </a>
-      <div class="game-stats" aria-label="战局状态">
-        <span>第 <strong id="round-value">1 / 4</strong> 回合</span>
-        <span>核心 <strong id="core-value">32</strong></span>
-        <span><strong id="credit-value">132</strong> 资源</span>
-      </div>
       <div class="top-actions">
         <button class="icon-button" id="sound-button" type="button" aria-label="关闭音效" aria-pressed="true">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 9v6h4l5 4V5L9 9H5Zm12.5 1a3.5 3.5 0 0 1 0 4M19.7 7a7 7 0 0 1 0 10"/></svg>
@@ -124,52 +119,53 @@ app.innerHTML = `
       </div>
     </header>
 
-    <main class="game-board">
+    <main class="game-stage">
       <section class="battlefield" aria-label="战场">
-        <div class="battlefield-toolbar">
+        <div class="canvas-wrap">
+          <canvas id="battlefield" tabindex="0" aria-label="路线战场。拖动三个圆形路标，让路线经过两个中继并避开红色火力路段。"></canvas>
+          <div class="field-hud" aria-label="战局状态">
+            <div class="hud-stat round-stat"><span>R</span><strong id="round-value">1 / 4</strong></div>
+            <div class="hud-stat core-stat"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 2 7 6-2.7 10H7.7L5 8l7-6Z"/></svg><strong id="core-value">32</strong></div>
+            <div class="hud-stat credit-stat"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 4 8v8l8 5 8-5V8l-8-5Zm0 5v8m-4-6 4 2 4-2"/></svg><strong id="credit-value">132</strong></div>
+          </div>
           <div class="phase-label"><i></i><span id="phase-label">规划中</span></div>
           <p class="battle-rule" id="defense-copy">红色路段处于火力覆盖内</p>
-          <div class="battlefield-actions">
-            <button class="speed-button" id="speed-button" type="button" aria-label="切换战斗速度" disabled>1×</button>
-          </div>
-        </div>
-        <div class="canvas-wrap">
-          <canvas id="battlefield" tabindex="0" aria-label="路线战场。拖动三个方形路标，让路线经过两个中继并避开红色火力路段。"></canvas>
-          <div class="map-hint" id="map-hint">拖动 3 个路标 · 经过两个中继 · 路线不超过 1.35</div>
+          <button class="speed-button" id="speed-button" type="button" aria-label="切换战斗速度" disabled>1×</button>
+          <div class="map-hint" id="map-hint"><b>拖</b><span>穿过两枚中继</span></div>
           <div class="wave-progress" id="wave-progress" hidden><i></i></div>
           <div class="combat-toast" id="combat-toast" role="status" aria-live="polite"></div>
-        </div>
-        <div class="route-readout" aria-label="路线评估">
-          <span>中继 <strong id="relay-value">0 / 2</strong></span>
-          <span>路线 <strong id="route-length">1.52 / 1.35</strong></span>
-          <span><strong id="trace-value">新路径</strong></span>
+          <div class="route-dashboard" aria-label="路线评估">
+            <div class="relay-strip" id="relay-dots" aria-hidden="true"><i></i><span></span><i></i></div>
+            <div class="route-meter"><i id="route-meter-fill"></i><b></b></div>
+            <strong id="route-length">1.52</strong>
+            <strong id="trace-value">路线无效</strong>
+            <span class="sr-only">中继 <strong id="relay-value">0 / 2</strong></span>
+          </div>
         </div>
       </section>
 
-      <section class="unit-bar" aria-label="出兵顺序">
-        <header class="unit-bar-title">
-          <div><strong>出兵</strong><small>按点击顺序部署 · 2–4 批</small></div>
-          <div class="mutation-rack" id="mutation-rack"><span>自动进化</span><small>无</small></div>
-        </header>
+      <section class="unit-dock" aria-label="出兵顺序">
         <div class="unit-market" id="unit-market">
-          <button class="unit-card" type="button" data-unit="slime">
-            <span class="unit-copy"><strong>史莱姆 <em>×3</em></strong><small>诱饵</small></span>
-            <span class="unit-cost">30</span>
+          <button class="unit-card slime" type="button" data-unit="slime" aria-label="加入史莱姆">
+            <svg class="unit-glyph" viewBox="0 0 64 64" aria-hidden="true"><path d="M10 42c0-17 8-29 22-29s22 12 22 29c0 8-9 11-15 7-5 5-10 5-15 0-6 4-14 1-14-7Z"/><circle cx="27" cy="33" r="2.5"/><circle cx="39" cy="33" r="2.5"/></svg>
+            <span class="unit-meta"><em>×3</em><strong class="unit-cost">30</strong></span>
           </button>
-          <button class="unit-card" type="button" data-unit="swift">
-            <span class="unit-copy"><strong>疾行兽 <em>×2</em></strong><small>高速</small></span>
-            <span class="unit-cost">42</span>
+          <button class="unit-card swift" type="button" data-unit="swift" aria-label="加入疾行兽">
+            <svg class="unit-glyph" viewBox="0 0 64 64" aria-hidden="true"><path d="m56 32-42 21 11-21-11-21 42 21Z"/><path d="m24 32-15 8 7-8-7-8 15 8Z"/></svg>
+            <span class="unit-meta"><em>×2</em><strong class="unit-cost">42</strong></span>
           </button>
-          <button class="unit-card" type="button" data-unit="tank">
-            <span class="unit-copy"><strong>铁甲兽 <em>×1</em></strong><small>重装</small></span>
-            <span class="unit-cost">60</span>
+          <button class="unit-card tank" type="button" data-unit="tank" aria-label="加入铁甲兽">
+            <svg class="unit-glyph" viewBox="0 0 64 64" aria-hidden="true"><path d="M12 18h38v35H12z"/><path d="M20 10h28v15H20zm30 18h8v10h-8z"/><circle cx="22" cy="53" r="5"/><circle cx="43" cy="53" r="5"/></svg>
+            <span class="unit-meta"><em>×1</em><strong class="unit-cost">60</strong></span>
           </button>
         </div>
         <div class="queue-track" id="queue-track" aria-label="当前出兵序列"></div>
+        <div class="mutation-rack" id="mutation-rack" aria-label="自动进化"><small>无进化</small></div>
         <div class="launch-zone">
-          <div class="readiness"><span><i id="ready-light"></i><strong id="ready-title">路线无效</strong></span><small id="ready-copy">经过两个中继并缩短路线</small></div>
+          <div class="readiness"><i id="ready-light"></i><strong id="ready-title">路线无效</strong><small id="ready-copy">经过两个中继并缩短路线</small></div>
           <button class="launch-button" id="launch-button" type="button" disabled>
-            <span>出发</span>
+            <svg viewBox="0 0 32 32" aria-hidden="true"><path d="m7 25 18-9L7 7l4 9-4 9Z"/></svg>
+            <span class="sr-only">出发</span>
           </button>
         </div>
       </section>
@@ -214,6 +210,8 @@ const ui = {
   core: byId('core-value'),
   credits: byId('credit-value'),
   routeLength: byId('route-length'),
+  routeMeter: byId('route-meter-fill'),
+  relayDots: byId('relay-dots'),
   relayValue: byId('relay-value'),
   traceValue: byId('trace-value'),
   mutationRack: byId('mutation-rack'),
@@ -343,34 +341,34 @@ function updateUI(): void {
   ui.round.textContent = `${round} / ${MAX_ROUNDS}`
   ui.core.textContent = Math.ceil(core).toString()
   ui.credits.textContent = credits.toString()
-  ui.routeLength.textContent = `${routeStatus.length.toFixed(2)} / ${MAX_ROUTE_LENGTH.toFixed(2)}`
+  ui.routeLength.textContent = routeStatus.length.toFixed(2)
   ui.routeLength.className = routeStatus.remaining >= 0 ? 'ready-value' : 'danger-value'
+  const routeRatio = clamp(routeStatus.length / MAX_ROUTE_LENGTH, 0, 1.18)
+  ui.routeMeter.style.width = `${Math.min(routeRatio, 1) * 100}%`
+  ui.routeMeter.classList.toggle('danger', routeStatus.remaining < 0)
   ui.relayValue.textContent = `${routeStatus.linked} / ${routeStatus.total}`
   ui.relayValue.className =
     routeStatus.linked === routeStatus.total ? 'ready-value' : 'danger-value'
+  ui.relayDots.querySelectorAll('i').forEach((dot, index) => {
+    dot.classList.toggle('linked', index < routeStatus.linked)
+  })
   ui.traceValue.textContent =
-    round === 1
-      ? routeStatus.ready
-        ? '路线有效'
-        : '路线无效'
-      : routeRepeated
-        ? '旧路径 · 塔伤 +60%'
-        : '路径已变化'
+    round === 1 ? (routeStatus.ready ? '可突破' : '未接通') : routeRepeated ? '+60% 火力' : '新路线'
   ui.traceValue.className = routeRepeated ? 'danger-value' : 'ready-value'
   ui.defenseCopy.textContent = routeRepeated
-    ? '重复路径已被加固，所有塔伤提高 60%'
+    ? '路径暴露 · 火力 +60%'
     : round > 1
-      ? '红色火力路段已按上轮路径重布'
-      : '红色路段处于火力覆盖内'
+      ? '火力已重布'
+      : '红色 = 火力覆盖'
 
   ui.mutationRack.innerHTML = ownedMutations.length
-    ? `<span>自动进化</span><div>${ownedMutations
+    ? `<div>${ownedMutations
         .map((id) => {
           const mutation = MUTATION_DEFS[id]
-          return `<i title="${mutation.name} · ${mutation.detail}">${mutation.name}</i>`
+          return `<i title="${mutation.name} · ${mutation.detail}" aria-label="${mutation.name}"></i>`
         })
         .join('')}</div>`
-    : '<span>自动进化</span><small>无</small>'
+    : '<small>无进化</small>'
 
   ui.queue.innerHTML = queue.length
     ? queue
@@ -379,11 +377,11 @@ function updateUI(): void {
             batch,
             index
           ) => `<button type="button" class="queue-token ${batch.kind}" data-remove-batch="${batch.id}" aria-label="撤回第 ${index + 1} 批 ${UNIT_DEFS[batch.kind].name}">
-              <span>${index + 1}</span><i></i><strong>×${UNIT_DEFS[batch.kind].count + (batch.kind === 'slime' ? modifiers.slimeBonus : 0)}</strong>
+              <i></i><strong>×${UNIT_DEFS[batch.kind].count + (batch.kind === 'slime' ? modifiers.slimeBonus : 0)}</strong>
             </button>`
         )
         .join('')
-    : '<div class="queue-empty"><p>点击单位加入队列</p></div>'
+    : '<div class="queue-empty" aria-hidden="true"><i></i><i></i><i></i><i></i></div>'
 
   ui.market.querySelectorAll<HTMLButtonElement>('[data-unit]').forEach((button) => {
     const kind = button.dataset.unit as UnitKind
@@ -415,7 +413,7 @@ function updateUI(): void {
           : `${totalUnits} 个单位就绪`
   ui.readyCopy.textContent = canLaunch ? '可以出发' : '拖路线或调整队列'
   ui.phase.textContent = phase === 'battle' ? '突破中' : phase === 'planning' ? '规划中' : '结算中'
-  ui.mapHint.classList.toggle('hidden', !isPlanning)
+  ui.mapHint.classList.toggle('hidden', !isPlanning || routeStatus.ready)
   ui.speed.disabled = phase !== 'battle'
   ui.waveProgress.toggleAttribute('hidden', phase !== 'battle')
   app.dataset.phase = phase
@@ -903,8 +901,69 @@ function roundedRect(
 
 function drawBackdrop(): void {
   context.clearRect(0, 0, canvasWidth, canvasHeight)
-  context.fillStyle = '#121311'
+  context.fillStyle = '#11120f'
   context.fillRect(0, 0, canvasWidth, canvasHeight)
+
+  context.save()
+  context.globalAlpha = 0.62
+  context.fillStyle = '#171a14'
+  context.beginPath()
+  context.moveTo(0, canvasHeight * 0.04)
+  context.bezierCurveTo(
+    canvasWidth * 0.22,
+    canvasHeight * 0.18,
+    canvasWidth * 0.3,
+    canvasHeight * 0.02,
+    canvasWidth * 0.54,
+    canvasHeight * 0.12
+  )
+  context.bezierCurveTo(
+    canvasWidth * 0.72,
+    canvasHeight * 0.2,
+    canvasWidth * 0.86,
+    canvasHeight * 0.06,
+    canvasWidth,
+    canvasHeight * 0.16
+  )
+  context.lineTo(canvasWidth, 0)
+  context.lineTo(0, 0)
+  context.closePath()
+  context.fill()
+
+  context.fillStyle = '#151712'
+  context.beginPath()
+  context.moveTo(0, canvasHeight * 0.77)
+  context.bezierCurveTo(
+    canvasWidth * 0.2,
+    canvasHeight * 0.62,
+    canvasWidth * 0.37,
+    canvasHeight * 0.94,
+    canvasWidth * 0.58,
+    canvasHeight * 0.79
+  )
+  context.bezierCurveTo(
+    canvasWidth * 0.78,
+    canvasHeight * 0.65,
+    canvasWidth * 0.9,
+    canvasHeight * 0.91,
+    canvasWidth,
+    canvasHeight * 0.78
+  )
+  context.lineTo(canvasWidth, canvasHeight)
+  context.lineTo(0, canvasHeight)
+  context.closePath()
+  context.fill()
+
+  for (const tower of towers) {
+    const center = px(tower.position)
+    const radius = tower.range * Math.min(canvasWidth, canvasHeight)
+    context.beginPath()
+    context.arc(center.x, center.y, radius, 0, Math.PI * 2)
+    context.fillStyle = tower.kind === 'cannon' ? '#291b17' : '#1d2020'
+    context.globalAlpha = tower.kind === 'cannon' ? 0.13 : 0.1
+    context.fill()
+  }
+  context.restore()
 }
 
 function traceRoute(): void {
@@ -927,11 +986,11 @@ function drawRoute(): void {
   context.lineJoin = 'round'
   traceRoute()
   context.strokeStyle = '#080908'
-  context.lineWidth = Math.max(24, canvasHeight * 0.06)
+  context.lineWidth = Math.max(30, canvasHeight * 0.07)
   context.stroke()
   traceRoute()
   context.strokeStyle = '#282a23'
-  context.lineWidth = Math.max(16, canvasHeight * 0.04)
+  context.lineWidth = Math.max(20, canvasHeight * 0.046)
   context.stroke()
   context.lineWidth = 2
   let previous = px(pointOnRoute(route, 0))
@@ -949,6 +1008,23 @@ function drawRoute(): void {
     context.stroke()
     previous = current
   }
+  for (const progress of [0.2, 0.4, 0.6, 0.8]) {
+    const center = px(pointOnRoute(route, progress))
+    const ahead = px(pointOnRoute(route, clamp(progress + 0.006, 0, 1)))
+    const angle = Math.atan2(ahead.y - center.y, ahead.x - center.x)
+    context.save()
+    context.translate(center.x, center.y)
+    context.rotate(angle)
+    context.fillStyle = '#656b59'
+    context.beginPath()
+    context.moveTo(6, 0)
+    context.lineTo(-4, -5)
+    context.lineTo(-1, 0)
+    context.lineTo(-4, 5)
+    context.closePath()
+    context.fill()
+    context.restore()
+  }
   context.restore()
 }
 
@@ -956,46 +1032,81 @@ function drawPortal(position: Point, destination: boolean): void {
   const center = px(position)
   context.save()
   context.translate(center.x, center.y)
-  context.strokeStyle = destination ? '#c87970' : '#aab88d'
-  context.fillStyle = '#121311'
-  context.lineWidth = 1.5
-  if (destination) context.rotate(Math.PI / 4)
-  context.fillRect(-11, -11, 22, 22)
-  context.strokeRect(-11, -11, 22, 22)
-  context.fillStyle = destination ? '#c87970' : '#aab88d'
-  context.fillRect(-3, -3, 6, 6)
-  if (destination) context.rotate(-Math.PI / 4)
-  context.font = '500 9px ui-sans-serif, sans-serif'
-  context.textAlign = destination ? 'right' : 'left'
-  context.fillStyle = destination ? '#c87970' : '#aab88d'
-  context.fillText(destination ? `核心 ${Math.ceil(core)}` : '入口', destination ? 4 : -4, 28)
+  const color = destination ? '#d4776e' : '#b7c795'
+  context.fillStyle = '#0b0c0a'
+  context.strokeStyle = color
+  context.lineWidth = 3
+  context.beginPath()
+  context.arc(0, 0, 20, 0, Math.PI * 2)
+  context.fill()
+  context.stroke()
+  context.beginPath()
+  context.arc(0, 0, 11, 0, Math.PI * 2)
+  context.strokeStyle = color
+  context.lineWidth = 5
+  context.stroke()
+  context.fillStyle = color
+  if (destination) {
+    context.beginPath()
+    context.moveTo(0, -7)
+    context.lineTo(7, 0)
+    context.lineTo(0, 7)
+    context.lineTo(-7, 0)
+    context.closePath()
+    context.fill()
+  } else {
+    context.beginPath()
+    context.moveTo(7, 0)
+    context.lineTo(-4, -7)
+    context.lineTo(-1, 0)
+    context.lineTo(-4, 7)
+    context.closePath()
+    context.fill()
+  }
   context.restore()
 }
 
 function drawTacticalNode(node: RuntimeNode): void {
   const center = px(node.position)
-  const definition = TACTICAL_NODE_DEFS[node.kind]
   const radius = Math.min(canvasWidth, canvasHeight) * node.radius
   context.save()
   context.translate(center.x, center.y)
-  context.globalAlpha = node.activated ? 0.3 : 0.8
-  context.setLineDash([3, 5])
+  context.globalAlpha = node.activated ? 0.28 : 0.92
   context.beginPath()
   context.arc(0, 0, radius, 0, Math.PI * 2)
-  context.strokeStyle = '#62655a'
-  context.lineWidth = 1
+  context.fillStyle = 'rgba(151, 165, 126, .07)'
+  context.fill()
+  context.fillStyle = '#0d0e0c'
+  context.strokeStyle = '#a7b58c'
+  context.lineWidth = 3
+  context.beginPath()
+  context.arc(0, 0, 17, 0, Math.PI * 2)
+  context.fill()
   context.stroke()
-  context.setLineDash([])
-  context.fillStyle = '#121311'
-  context.strokeStyle = '#9a9d8d'
-  context.fillRect(-7, -7, 14, 14)
-  context.strokeRect(-7, -7, 14, 14)
   context.fillStyle = '#aab88d'
-  context.fillRect(-2, -2, 4, 4)
-  context.font = '500 8px ui-sans-serif, sans-serif'
-  context.textAlign = 'center'
-  context.fillStyle = '#a4a39b'
-  context.fillText(node.activated ? '已吸收' : definition.name, 0, radius + 13)
+  context.lineWidth = 3
+  if (node.kind === 'vitality') {
+    context.fillRect(-3, -10, 6, 20)
+    context.fillRect(-10, -3, 20, 6)
+  } else if (node.kind === 'haste') {
+    context.beginPath()
+    context.moveTo(-10, -9)
+    context.lineTo(0, 0)
+    context.lineTo(-10, 9)
+    context.lineTo(-4, 9)
+    context.lineTo(6, 0)
+    context.lineTo(-4, -9)
+    context.closePath()
+    context.fill()
+  } else {
+    context.strokeStyle = '#aab88d'
+    context.beginPath()
+    context.moveTo(-8, -8)
+    context.lineTo(8, 8)
+    context.moveTo(8, -8)
+    context.lineTo(-8, 8)
+    context.stroke()
+  }
   context.restore()
 }
 
@@ -1007,29 +1118,41 @@ function drawTower(tower: RuntimeTower): void {
     cannon: '#a58a78'
   }
   const color = towerColor[tower.kind]
-  const radius = tower.kind === 'cannon' ? 10 : 9
+  const radius = tower.kind === 'cannon' ? 15 : 13
   context.save()
   context.translate(center.x, center.y)
   if (phase === 'battle' && waveElapsed < jammedUntil) context.globalAlpha = 0.42
-  context.fillStyle = '#171815'
+  context.fillStyle = '#0c0d0b'
   context.strokeStyle = color
-  context.lineWidth = 1
-  context.fillRect(-radius, -radius, radius * 2, radius * 2)
-  context.strokeRect(-radius, -radius, radius * 2, radius * 2)
+  context.lineWidth = 2.5
+  context.beginPath()
+  context.arc(0, 0, radius, 0, Math.PI * 2)
+  context.fill()
+  context.stroke()
   context.fillStyle = color
   if (tower.kind === 'pulse') {
-    context.fillRect(-3, -3, 6, 6)
+    context.fillRect(-3, -9, 6, 18)
+    context.fillRect(-9, -3, 18, 6)
   } else if (tower.kind === 'frost') {
-    context.beginPath()
-    context.arc(0, 0, 3.5, 0, Math.PI * 2)
-    context.fill()
+    context.strokeStyle = color
+    context.lineWidth = 2.5
+    for (let index = 0; index < 3; index += 1) {
+      context.rotate(Math.PI / 3)
+      context.beginPath()
+      context.moveTo(-8, 0)
+      context.lineTo(8, 0)
+      context.stroke()
+    }
   } else {
-    context.fillRect(-2, -6 - tower.recoil * 14, 4, 10)
+    context.rotate(-Math.PI / 4)
+    context.fillRect(-4, -7 - tower.recoil * 14, 8, 18)
   }
   if (tower.level === 2) {
     context.strokeStyle = '#c6c2b4'
-    context.lineWidth = 1
-    context.strokeRect(-radius - 3, -radius - 3, radius * 2 + 6, radius * 2 + 6)
+    context.lineWidth = 2
+    context.beginPath()
+    context.arc(0, 0, radius + 5, 0, Math.PI * 2)
+    context.stroke()
   }
   context.restore()
 }
@@ -1040,7 +1163,7 @@ function drawUnit(unit: RuntimeUnit): void {
   const ahead = px(pointOnRoute(route, clamp(unit.progress + 0.008, 0, 1)))
   const angle = Math.atan2(ahead.y - position.y, ahead.x - position.x)
   const definition = unitDefinition(unit.kind, ownedMutations)
-  const radius = Math.max(7, definition.radius * canvasWidth)
+  const radius = Math.max(10, definition.radius * canvasWidth * 1.28)
   context.save()
   context.translate(position.x, position.y)
   context.rotate(angle)
@@ -1101,16 +1224,18 @@ function drawWaypoints(): void {
     const selected = index === selectedWaypoint
     context.save()
     context.translate(center.x, center.y)
-    const size = selected ? 22 : 18
-    context.fillStyle = selected ? '#aab88d' : '#20221d'
-    context.strokeStyle = selected ? '#d5d9ca' : '#777d6a'
-    context.lineWidth = 1
-    context.fillRect(-size / 2, -size / 2, size, size)
-    context.strokeRect(-size / 2, -size / 2, size, size)
-    context.font = '600 8px ui-sans-serif, sans-serif'
-    context.textAlign = 'center'
-    context.fillStyle = selected ? '#121311' : '#a4a39b'
-    context.fillText(index.toString(), 0, 3)
+    const size = selected ? 17 : 14
+    context.fillStyle = selected ? '#b7c795' : '#1b1e18'
+    context.strokeStyle = selected ? '#eef0e7' : '#7d846e'
+    context.lineWidth = selected ? 3 : 2
+    context.beginPath()
+    context.arc(0, 0, size, 0, Math.PI * 2)
+    context.fill()
+    context.stroke()
+    context.fillStyle = selected ? '#10120e' : '#aab88d'
+    context.beginPath()
+    context.arc(0, 0, 4, 0, Math.PI * 2)
+    context.fill()
     context.restore()
   })
 }
