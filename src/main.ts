@@ -112,9 +112,14 @@ app.innerHTML = `
           <canvas id="battlefield" tabindex="0" aria-label="路线战场。拖动三个圆形路标，让路线经过两个中继并避开红色火力路段。"></canvas>
           <a class="brand" href="." aria-label="Ayaya Breach Protocol 首页"><strong>Ayaya</strong></a>
           <div class="field-hud" aria-label="战局状态">
-            <div class="hud-stat round-stat"><span>R</span><strong id="round-value">1 / 4</strong></div>
+            <div class="hud-stat round-stat"><span>回合</span><strong id="round-value">1 / 4</strong></div>
             <div class="hud-stat core-stat"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 2 7 6-2.7 10H7.7L5 8l7-6Z"/></svg><strong id="core-value">32</strong></div>
             <div class="hud-stat credit-stat"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 4 8v8l8 5 8-5V8l-8-5Zm0 5v8m-4-6 4 2 4-2"/></svg><strong id="credit-value">132</strong></div>
+          </div>
+          <div class="guide" role="status" aria-live="polite">
+            <span id="guide-step">1 / 3 · 路线</span>
+            <strong id="guide-title">串起两枚中继</strong>
+            <small id="guide-copy">拖动三个白色节点，红色路段越短越安全</small>
           </div>
           <div class="top-actions">
             <button class="icon-button" id="sound-button" type="button" aria-label="关闭音效" aria-pressed="true">
@@ -124,41 +129,40 @@ app.innerHTML = `
               <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.3 5.7M20 5v6h-6"/></svg>
             </button>
           </div>
-          <div class="phase-label"><i></i><span id="phase-label">规划中</span></div>
+          <span class="sr-only" id="phase-label">规划中</span>
           <p class="battle-rule" id="defense-copy">红色路段处于火力覆盖内</p>
           <button class="speed-button" id="speed-button" type="button" aria-label="切换战斗速度" disabled>1×</button>
-          <div class="map-hint" id="map-hint"><b>↝</b><span>拖动白色孢子，串起两枚中继</span></div>
+          <div class="sr-only" id="map-hint">拖动白色节点，串起两枚中继</div>
           <div class="wave-progress" id="wave-progress" hidden><i></i></div>
           <div class="combat-toast" id="combat-toast" role="status" aria-live="polite"></div>
           <div class="route-dashboard" aria-label="路线评估">
-            <div class="relay-strip" id="relay-dots" aria-hidden="true"><i></i><span></span><i></i></div>
+            <div class="route-number"><span>路线</span><strong id="route-length">1.52</strong><small>/ 1.35</small></div>
             <div class="route-meter"><i id="route-meter-fill"></i><b></b></div>
-            <strong id="route-length">1.52</strong>
+            <div class="relay-line"><div class="relay-strip" id="relay-dots" aria-hidden="true"><i></i><span></span><i></i></div><span>中继 <strong id="relay-value">0 / 2</strong></span></div>
             <strong id="trace-value">路线无效</strong>
-            <span class="sr-only">中继 <strong id="relay-value">0 / 2</strong></span>
           </div>
           <section class="swarm-control" aria-label="出兵顺序">
             <div class="unit-market" id="unit-market">
               <button class="unit-card slime" type="button" data-unit="slime" aria-label="加入史莱姆">
                 <svg class="unit-glyph" viewBox="0 0 64 64" aria-hidden="true"><path d="M10 42c0-17 8-29 22-29s22 12 22 29c0 8-9 11-15 7-5 5-10 5-15 0-6 4-14 1-14-7Z"/><circle cx="27" cy="33" r="2.5"/><circle cx="39" cy="33" r="2.5"/></svg>
-                <span class="unit-meta"><em>×3</em><strong class="unit-cost">30</strong></span>
+                <span class="unit-copy"><strong>史莱姆</strong><small>诱饵 · <em>×3</em></small></span><b class="unit-cost">30</b>
               </button>
               <button class="unit-card swift" type="button" data-unit="swift" aria-label="加入疾行兽">
                 <svg class="unit-glyph" viewBox="0 0 64 64" aria-hidden="true"><path d="m56 32-42 21 11-21-11-21 42 21Z"/><path d="m24 32-15 8 7-8-7-8 15 8Z"/></svg>
-                <span class="unit-meta"><em>×2</em><strong class="unit-cost">42</strong></span>
+                <span class="unit-copy"><strong>疾行兽</strong><small>高速 · <em>×2</em></small></span><b class="unit-cost">42</b>
               </button>
               <button class="unit-card tank" type="button" data-unit="tank" aria-label="加入铁甲兽">
                 <svg class="unit-glyph" viewBox="0 0 64 64" aria-hidden="true"><path d="M12 18h38v35H12z"/><path d="M20 10h28v15H20zm30 18h8v10h-8z"/><circle cx="22" cy="53" r="5"/><circle cx="43" cy="53" r="5"/></svg>
-                <span class="unit-meta"><em>×1</em><strong class="unit-cost">60</strong></span>
+                <span class="unit-copy"><strong>铁甲兽</strong><small>重装 · <em>×1</em></small></span><b class="unit-cost">60</b>
               </button>
             </div>
             <div class="queue-track" id="queue-track" aria-label="当前出兵序列"></div>
             <div class="mutation-rack" id="mutation-rack" aria-label="自动进化"><small>无进化</small></div>
             <div class="launch-zone">
-              <div class="readiness"><i id="ready-light"></i><strong id="ready-title">路线无效</strong><small id="ready-copy">经过两个中继并缩短路线</small></div>
+              <div class="readiness sr-only"><i id="ready-light"></i><strong id="ready-title">路线无效</strong><small id="ready-copy">经过两个中继并缩短路线</small></div>
               <button class="launch-button" id="launch-button" type="button" disabled>
                 <svg viewBox="0 0 32 32" aria-hidden="true"><path d="m7 25 18-9L7 7l4 9-4 9Z"/></svg>
-                <span class="sr-only">出发</span>
+                <span>出发</span>
               </button>
             </div>
           </section>
@@ -204,6 +208,9 @@ const ui = {
   round: byId('round-value'),
   core: byId('core-value'),
   credits: byId('credit-value'),
+  guideStep: byId('guide-step'),
+  guideTitle: byId('guide-title'),
+  guideCopy: byId('guide-copy'),
   routeLength: byId('route-length'),
   routeMeter: byId('route-meter-fill'),
   relayDots: byId('relay-dots'),
@@ -332,6 +339,18 @@ function updateUI(): void {
   const routeStatus = evaluateRoutePlan(route, nodes, MAX_ROUTE_LENGTH)
   const similarity = routeSimilarity(route, previousRoute)
   routeRepeated = round > 1 && similarity >= 0.72
+  let exposedSamples = 0
+  const threatSamples = 80
+  for (let index = 0; index <= threatSamples; index += 1) {
+    const point = pointOnRoute(route, index / threatSamples)
+    if (
+      towers.some(
+        (tower) => Math.hypot(point.x - tower.position.x, point.y - tower.position.y) <= tower.range
+      )
+    )
+      exposedSamples += 1
+  }
+  const threatPercent = Math.round((exposedSamples / (threatSamples + 1)) * 100)
 
   ui.round.textContent = `${round} / ${MAX_ROUNDS}`
   ui.core.textContent = Math.ceil(core).toString()
@@ -347,9 +366,8 @@ function updateUI(): void {
   ui.relayDots.querySelectorAll('i').forEach((dot, index) => {
     dot.classList.toggle('linked', index < routeStatus.linked)
   })
-  ui.traceValue.textContent =
-    round === 1 ? (routeStatus.ready ? '可突破' : '未接通') : routeRepeated ? '+60% 火力' : '新路线'
-  ui.traceValue.className = routeRepeated ? 'danger-value' : 'ready-value'
+  ui.traceValue.textContent = routeRepeated ? `重复路线 · 火力 +60%` : `火力覆盖 ${threatPercent}%`
+  ui.traceValue.className = routeRepeated || threatPercent >= 55 ? 'danger-value' : 'ready-value'
   ui.defenseCopy.textContent = routeRepeated
     ? '路径暴露 · 火力 +60%'
     : round > 1
@@ -360,7 +378,7 @@ function updateUI(): void {
     ? `<div>${ownedMutations
         .map((id) => {
           const mutation = MUTATION_DEFS[id]
-          return `<i title="${mutation.name} · ${mutation.detail}" aria-label="${mutation.name}"></i>`
+          return `<i title="${mutation.name} · ${mutation.detail}"><span>${mutation.name}</span></i>`
         })
         .join('')}</div>`
     : '<small>无进化</small>'
@@ -372,11 +390,11 @@ function updateUI(): void {
             batch,
             index
           ) => `<button type="button" class="queue-token ${batch.kind}" data-remove-batch="${batch.id}" aria-label="撤回第 ${index + 1} 批 ${UNIT_DEFS[batch.kind].name}">
-              <i></i><strong>×${UNIT_DEFS[batch.kind].count + (batch.kind === 'slime' ? modifiers.slimeBonus : 0)}</strong>
+              <span>${index + 1}</span><i></i><strong>×${UNIT_DEFS[batch.kind].count + (batch.kind === 'slime' ? modifiers.slimeBonus : 0)}</strong>
             </button>`
         )
         .join('')
-    : '<div class="queue-empty" aria-hidden="true"><i></i><i></i><i></i><i></i></div>'
+    : '<div class="queue-empty" aria-hidden="true"><span>出场顺序</span><i>1</i><i>2</i><i>3</i><i>4</i></div>'
 
   ui.market.querySelectorAll<HTMLButtonElement>('[data-unit]').forEach((button) => {
     const kind = button.dataset.unit as UnitKind
@@ -408,6 +426,27 @@ function updateUI(): void {
           : `${totalUnits} 个单位就绪`
   ui.readyCopy.textContent = canLaunch ? '可以出发' : '拖路线或调整队列'
   ui.phase.textContent = phase === 'battle' ? '突破中' : phase === 'planning' ? '规划中' : '结算中'
+  if (phase === 'battle') {
+    ui.guideStep.textContent = `${round} / ${MAX_ROUNDS} · 突破中`
+    ui.guideTitle.textContent = '观察编队如何穿过火力'
+    ui.guideCopy.textContent = '下一轮防线会学习本轮路线与出兵顺序'
+  } else if (routeStatus.linked < routeStatus.total) {
+    ui.guideStep.textContent = '1 / 3 · 路线'
+    ui.guideTitle.textContent = '串起两枚中继'
+    ui.guideCopy.textContent = '拖动三个白色节点；红色路段越短越安全'
+  } else if (routeStatus.remaining < 0) {
+    ui.guideStep.textContent = '1 / 3 · 路线'
+    ui.guideTitle.textContent = `再缩短 ${Math.abs(routeStatus.remaining).toFixed(2)}`
+    ui.guideCopy.textContent = '保留两枚中继，同时把折线拉直'
+  } else if (!armyReady) {
+    ui.guideStep.textContent = '2 / 3 · 编队'
+    ui.guideTitle.textContent = `再选择 ${MIN_BATCHES - queue.length} 批单位`
+    ui.guideCopy.textContent = '单位按点击顺序出场；先头会承受最多火力'
+  } else {
+    ui.guideStep.textContent = '3 / 3 · 决策'
+    ui.guideTitle.textContent = '检查红路与出场顺序'
+    ui.guideCopy.textContent = '点击队列可撤回；准备好后发起突破'
+  }
   ui.mapHint.classList.toggle('hidden', !isPlanning || routeStatus.ready)
   ui.speed.disabled = phase !== 'battle'
   ui.waveProgress.toggleAttribute('hidden', phase !== 'battle')
@@ -1014,10 +1053,10 @@ function drawRoute(): void {
   context.lineWidth = Math.max(32, canvasHeight * 0.065)
   context.stroke()
   traceRoute()
-  context.strokeStyle = '#242b1e'
+  context.strokeStyle = '#2d3525'
   context.lineWidth = Math.max(22, canvasHeight * 0.043)
   context.stroke()
-  context.lineWidth = 3
+  context.lineWidth = 5
   let previous = routePixelAt(0)
   for (let index = 1; index <= 120; index += 1) {
     const progress = index / 120
@@ -1026,7 +1065,7 @@ function drawRoute(): void {
     const exposed = towers.some(
       (tower) => Math.hypot(point.x - tower.position.x, point.y - tower.position.y) <= tower.range
     )
-    context.strokeStyle = exposed ? '#b06159' : '#8d9879'
+    context.strokeStyle = exposed ? '#df796f' : '#afc489'
     context.beginPath()
     context.moveTo(previous.x, previous.y)
     context.lineTo(current.x, current.y)
@@ -1084,14 +1123,25 @@ function drawPortal(position: Point, destination: boolean): void {
     context.fill()
   }
   context.restore()
+  context.save()
+  context.fillStyle = destination ? '#e27b72' : '#c9dfa0'
+  context.font = '650 10px ui-sans-serif, sans-serif'
+  context.textAlign = destination ? 'right' : 'left'
+  context.fillText(
+    destination ? '核心' : '入口',
+    center.x + (destination ? -18 : 18),
+    center.y + 36
+  )
+  context.restore()
 }
 
 function drawTacticalNode(node: RuntimeNode): void {
   const center = px(node.position)
   const radius = Math.min(canvasWidth, canvasHeight) * node.radius
+  const nodeRotation = node.id % 2 ? -0.24 : 0.19
   context.save()
   context.translate(center.x, center.y)
-  context.rotate(node.id % 2 ? -0.24 : 0.19)
+  context.rotate(nodeRotation)
   context.globalAlpha = node.activated ? 0.28 : 0.92
   organicBlob(radius, node.id * 5.2, 10)
   context.fillStyle = 'rgba(151, 165, 126, .07)'
@@ -1126,6 +1176,12 @@ function drawTacticalNode(node: RuntimeNode): void {
     context.lineTo(-8, 8)
     context.stroke()
   }
+  context.rotate(-nodeRotation)
+  const nodeLabels = { vitality: '修复中继', haste: '加速中继', jammer: '干扰中继' } as const
+  context.fillStyle = node.activated ? '#68715f' : '#d7dec9'
+  context.font = '650 10px ui-sans-serif, sans-serif'
+  context.textAlign = 'center'
+  context.fillText(nodeLabels[node.kind], 0, 35)
   context.restore()
 }
 
