@@ -106,32 +106,28 @@ const app: HTMLDivElement = maybeApp
 
 app.innerHTML = `
   <div class="app-shell">
-    <header class="stage-header">
-      <a class="brand" href="." aria-label="Ayaya Breach Protocol 首页">
-        <strong>Ayaya</strong>
-        <span>BREACH</span>
-      </a>
-      <div class="top-actions">
-        <button class="icon-button" id="sound-button" type="button" aria-label="关闭音效" aria-pressed="true">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 9v6h4l5 4V5L9 9H5Zm12.5 1a3.5 3.5 0 0 1 0 4M19.7 7a7 7 0 0 1 0 10"/></svg>
-        </button>
-        <button class="text-button" id="reset-button" type="button">重置</button>
-      </div>
-    </header>
-
     <main class="game-stage">
       <section class="battlefield" aria-label="战场">
         <div class="canvas-wrap">
           <canvas id="battlefield" tabindex="0" aria-label="路线战场。拖动三个圆形路标，让路线经过两个中继并避开红色火力路段。"></canvas>
+          <a class="brand" href="." aria-label="Ayaya Breach Protocol 首页"><strong>Ayaya</strong></a>
           <div class="field-hud" aria-label="战局状态">
             <div class="hud-stat round-stat"><span>R</span><strong id="round-value">1 / 4</strong></div>
             <div class="hud-stat core-stat"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 2 7 6-2.7 10H7.7L5 8l7-6Z"/></svg><strong id="core-value">32</strong></div>
             <div class="hud-stat credit-stat"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 4 8v8l8 5 8-5V8l-8-5Zm0 5v8m-4-6 4 2 4-2"/></svg><strong id="credit-value">132</strong></div>
           </div>
+          <div class="top-actions">
+            <button class="icon-button" id="sound-button" type="button" aria-label="关闭音效" aria-pressed="true">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 9v6h4l5 4V5L9 9H5Zm12.5 1a3.5 3.5 0 0 1 0 4M19.7 7a7 7 0 0 1 0 10"/></svg>
+            </button>
+            <button class="icon-button reset-button" id="reset-button" type="button" aria-label="重置战局">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.3 5.7M20 5v6h-6"/></svg>
+            </button>
+          </div>
           <div class="phase-label"><i></i><span id="phase-label">规划中</span></div>
           <p class="battle-rule" id="defense-copy">红色路段处于火力覆盖内</p>
           <button class="speed-button" id="speed-button" type="button" aria-label="切换战斗速度" disabled>1×</button>
-          <div class="map-hint" id="map-hint"><b>拖</b><span>穿过两枚中继</span></div>
+          <div class="map-hint" id="map-hint"><b>↝</b><span>拖动白色孢子，串起两枚中继</span></div>
           <div class="wave-progress" id="wave-progress" hidden><i></i></div>
           <div class="combat-toast" id="combat-toast" role="status" aria-live="polite"></div>
           <div class="route-dashboard" aria-label="路线评估">
@@ -141,32 +137,31 @@ app.innerHTML = `
             <strong id="trace-value">路线无效</strong>
             <span class="sr-only">中继 <strong id="relay-value">0 / 2</strong></span>
           </div>
-        </div>
-      </section>
-
-      <section class="unit-dock" aria-label="出兵顺序">
-        <div class="unit-market" id="unit-market">
-          <button class="unit-card slime" type="button" data-unit="slime" aria-label="加入史莱姆">
-            <svg class="unit-glyph" viewBox="0 0 64 64" aria-hidden="true"><path d="M10 42c0-17 8-29 22-29s22 12 22 29c0 8-9 11-15 7-5 5-10 5-15 0-6 4-14 1-14-7Z"/><circle cx="27" cy="33" r="2.5"/><circle cx="39" cy="33" r="2.5"/></svg>
-            <span class="unit-meta"><em>×3</em><strong class="unit-cost">30</strong></span>
-          </button>
-          <button class="unit-card swift" type="button" data-unit="swift" aria-label="加入疾行兽">
-            <svg class="unit-glyph" viewBox="0 0 64 64" aria-hidden="true"><path d="m56 32-42 21 11-21-11-21 42 21Z"/><path d="m24 32-15 8 7-8-7-8 15 8Z"/></svg>
-            <span class="unit-meta"><em>×2</em><strong class="unit-cost">42</strong></span>
-          </button>
-          <button class="unit-card tank" type="button" data-unit="tank" aria-label="加入铁甲兽">
-            <svg class="unit-glyph" viewBox="0 0 64 64" aria-hidden="true"><path d="M12 18h38v35H12z"/><path d="M20 10h28v15H20zm30 18h8v10h-8z"/><circle cx="22" cy="53" r="5"/><circle cx="43" cy="53" r="5"/></svg>
-            <span class="unit-meta"><em>×1</em><strong class="unit-cost">60</strong></span>
-          </button>
-        </div>
-        <div class="queue-track" id="queue-track" aria-label="当前出兵序列"></div>
-        <div class="mutation-rack" id="mutation-rack" aria-label="自动进化"><small>无进化</small></div>
-        <div class="launch-zone">
-          <div class="readiness"><i id="ready-light"></i><strong id="ready-title">路线无效</strong><small id="ready-copy">经过两个中继并缩短路线</small></div>
-          <button class="launch-button" id="launch-button" type="button" disabled>
-            <svg viewBox="0 0 32 32" aria-hidden="true"><path d="m7 25 18-9L7 7l4 9-4 9Z"/></svg>
-            <span class="sr-only">出发</span>
-          </button>
+          <section class="swarm-control" aria-label="出兵顺序">
+            <div class="unit-market" id="unit-market">
+              <button class="unit-card slime" type="button" data-unit="slime" aria-label="加入史莱姆">
+                <svg class="unit-glyph" viewBox="0 0 64 64" aria-hidden="true"><path d="M10 42c0-17 8-29 22-29s22 12 22 29c0 8-9 11-15 7-5 5-10 5-15 0-6 4-14 1-14-7Z"/><circle cx="27" cy="33" r="2.5"/><circle cx="39" cy="33" r="2.5"/></svg>
+                <span class="unit-meta"><em>×3</em><strong class="unit-cost">30</strong></span>
+              </button>
+              <button class="unit-card swift" type="button" data-unit="swift" aria-label="加入疾行兽">
+                <svg class="unit-glyph" viewBox="0 0 64 64" aria-hidden="true"><path d="m56 32-42 21 11-21-11-21 42 21Z"/><path d="m24 32-15 8 7-8-7-8 15 8Z"/></svg>
+                <span class="unit-meta"><em>×2</em><strong class="unit-cost">42</strong></span>
+              </button>
+              <button class="unit-card tank" type="button" data-unit="tank" aria-label="加入铁甲兽">
+                <svg class="unit-glyph" viewBox="0 0 64 64" aria-hidden="true"><path d="M12 18h38v35H12z"/><path d="M20 10h28v15H20zm30 18h8v10h-8z"/><circle cx="22" cy="53" r="5"/><circle cx="43" cy="53" r="5"/></svg>
+                <span class="unit-meta"><em>×1</em><strong class="unit-cost">60</strong></span>
+              </button>
+            </div>
+            <div class="queue-track" id="queue-track" aria-label="当前出兵序列"></div>
+            <div class="mutation-rack" id="mutation-rack" aria-label="自动进化"><small>无进化</small></div>
+            <div class="launch-zone">
+              <div class="readiness"><i id="ready-light"></i><strong id="ready-title">路线无效</strong><small id="ready-copy">经过两个中继并缩短路线</small></div>
+              <button class="launch-button" id="launch-button" type="button" disabled>
+                <svg viewBox="0 0 32 32" aria-hidden="true"><path d="m7 25 18-9L7 7l4 9-4 9Z"/></svg>
+                <span class="sr-only">出发</span>
+              </button>
+            </div>
+          </section>
         </div>
       </section>
     </main>
@@ -887,67 +882,97 @@ function resizeCanvas(): void {
 
 const px = (point: Point): Point => ({ x: point.x * canvasWidth, y: point.y * canvasHeight })
 
-function roundedRect(
-  drawing: CanvasRenderingContext2D,
-  x: number,
-  y: number,
-  width: number,
-  height: number,
-  radius: number
-): void {
-  drawing.beginPath()
-  drawing.roundRect(x, y, width, height, radius)
+function organicBlob(radius: number, seed: number, lobes = 9): void {
+  const points = Array.from({ length: lobes }, (_, index) => {
+    const angle = (index / lobes) * Math.PI * 2
+    const wobble = 1 + Math.sin(seed * 1.73 + index * 2.19) * 0.12
+    return {
+      x: Math.cos(angle) * radius * wobble,
+      y: Math.sin(angle) * radius * wobble
+    }
+  })
+  const first = points[0]
+  const last = points.at(-1)
+  if (!first || !last) return
+  context.beginPath()
+  context.moveTo((first.x + last.x) / 2, (first.y + last.y) / 2)
+  for (let index = 0; index < points.length; index += 1) {
+    const current = points[index]
+    const next = points[(index + 1) % points.length]
+    if (!current || !next) continue
+    context.quadraticCurveTo(
+      current.x,
+      current.y,
+      (current.x + next.x) / 2,
+      (current.y + next.y) / 2
+    )
+  }
+  context.closePath()
+}
+
+function routePixelAt(progress: number): Point {
+  const point = px(pointOnRoute(route, progress))
+  const before = px(pointOnRoute(route, clamp(progress - 0.004, 0, 1)))
+  const after = px(pointOnRoute(route, clamp(progress + 0.004, 0, 1)))
+  const dx = after.x - before.x
+  const dy = after.y - before.y
+  const length = Math.max(1, Math.hypot(dx, dy))
+  const wobble = Math.sin(progress * 47 + round * 0.7) * 2.2 + Math.sin(progress * 19) * 1.1
+  return {
+    x: point.x + (-dy / length) * wobble,
+    y: point.y + (dx / length) * wobble
+  }
 }
 
 function drawBackdrop(): void {
   context.clearRect(0, 0, canvasWidth, canvasHeight)
-  context.fillStyle = '#11120f'
+  context.fillStyle = '#10130d'
   context.fillRect(0, 0, canvasWidth, canvasHeight)
 
   context.save()
-  context.globalAlpha = 0.62
-  context.fillStyle = '#171a14'
+  context.globalAlpha = 0.48
+  context.fillStyle = '#192015'
   context.beginPath()
-  context.moveTo(0, canvasHeight * 0.04)
+  context.moveTo(0, canvasHeight * 0.09)
   context.bezierCurveTo(
-    canvasWidth * 0.22,
-    canvasHeight * 0.18,
-    canvasWidth * 0.3,
-    canvasHeight * 0.02,
-    canvasWidth * 0.54,
-    canvasHeight * 0.12
+    canvasWidth * 0.12,
+    canvasHeight * 0.23,
+    canvasWidth * 0.33,
+    -canvasHeight * 0.03,
+    canvasWidth * 0.51,
+    canvasHeight * 0.11
   )
   context.bezierCurveTo(
-    canvasWidth * 0.72,
-    canvasHeight * 0.2,
-    canvasWidth * 0.86,
-    canvasHeight * 0.06,
+    canvasWidth * 0.69,
+    canvasHeight * 0.25,
+    canvasWidth * 0.78,
+    canvasHeight * 0.02,
     canvasWidth,
-    canvasHeight * 0.16
+    canvasHeight * 0.18
   )
   context.lineTo(canvasWidth, 0)
   context.lineTo(0, 0)
   context.closePath()
   context.fill()
 
-  context.fillStyle = '#151712'
+  context.fillStyle = '#171c13'
   context.beginPath()
-  context.moveTo(0, canvasHeight * 0.77)
+  context.moveTo(0, canvasHeight * 0.81)
   context.bezierCurveTo(
-    canvasWidth * 0.2,
-    canvasHeight * 0.62,
-    canvasWidth * 0.37,
-    canvasHeight * 0.94,
-    canvasWidth * 0.58,
-    canvasHeight * 0.79
+    canvasWidth * 0.16,
+    canvasHeight * 0.68,
+    canvasWidth * 0.29,
+    canvasHeight * 0.97,
+    canvasWidth * 0.53,
+    canvasHeight * 0.82
   )
   context.bezierCurveTo(
-    canvasWidth * 0.78,
-    canvasHeight * 0.65,
-    canvasWidth * 0.9,
-    canvasHeight * 0.91,
+    canvasWidth * 0.72,
+    canvasHeight * 0.7,
+    canvasWidth * 0.84,
+    canvasHeight * 0.98,
     canvasWidth,
-    canvasHeight * 0.78
+    canvasHeight * 0.74
   )
   context.lineTo(canvasWidth, canvasHeight)
   context.lineTo(0, canvasHeight)
@@ -957,25 +982,25 @@ function drawBackdrop(): void {
   for (const tower of towers) {
     const center = px(tower.position)
     const radius = tower.range * Math.min(canvasWidth, canvasHeight)
-    context.beginPath()
-    context.arc(center.x, center.y, radius, 0, Math.PI * 2)
-    context.fillStyle = tower.kind === 'cannon' ? '#291b17' : '#1d2020'
-    context.globalAlpha = tower.kind === 'cannon' ? 0.13 : 0.1
+    context.save()
+    context.translate(center.x, center.y)
+    context.rotate(tower.id * 0.37)
+    organicBlob(radius, tower.id * 3.1, 11)
+    context.fillStyle = tower.kind === 'cannon' ? '#351c17' : '#20281f'
+    context.globalAlpha = tower.kind === 'cannon' ? 0.14 : 0.11
     context.fill()
+    context.restore()
   }
   context.restore()
 }
 
 function traceRoute(): void {
   if (route.length < 2) return
-  const points = route.map(px)
-  const first = points[0]
-  if (!first) return
+  const first = routePixelAt(0)
   context.beginPath()
   context.moveTo(first.x, first.y)
-  for (let index = 1; index < points.length; index += 1) {
-    const current = points[index]
-    if (!current) continue
+  for (let index = 1; index <= 120; index += 1) {
+    const current = routePixelAt(index / 120)
     context.lineTo(current.x, current.y)
   }
 }
@@ -985,19 +1010,19 @@ function drawRoute(): void {
   context.lineCap = 'round'
   context.lineJoin = 'round'
   traceRoute()
-  context.strokeStyle = '#080908'
-  context.lineWidth = Math.max(30, canvasHeight * 0.07)
+  context.strokeStyle = '#070905'
+  context.lineWidth = Math.max(32, canvasHeight * 0.065)
   context.stroke()
   traceRoute()
-  context.strokeStyle = '#282a23'
-  context.lineWidth = Math.max(20, canvasHeight * 0.046)
+  context.strokeStyle = '#242b1e'
+  context.lineWidth = Math.max(22, canvasHeight * 0.043)
   context.stroke()
-  context.lineWidth = 2
-  let previous = px(pointOnRoute(route, 0))
-  for (let index = 1; index <= 90; index += 1) {
-    const progress = index / 90
+  context.lineWidth = 3
+  let previous = routePixelAt(0)
+  for (let index = 1; index <= 120; index += 1) {
+    const progress = index / 120
     const point = pointOnRoute(route, progress)
-    const current = px(point)
+    const current = routePixelAt(progress)
     const exposed = towers.some(
       (tower) => Math.hypot(point.x - tower.position.x, point.y - tower.position.y) <= tower.range
     )
@@ -1009,13 +1034,13 @@ function drawRoute(): void {
     previous = current
   }
   for (const progress of [0.2, 0.4, 0.6, 0.8]) {
-    const center = px(pointOnRoute(route, progress))
-    const ahead = px(pointOnRoute(route, clamp(progress + 0.006, 0, 1)))
+    const center = routePixelAt(progress)
+    const ahead = routePixelAt(clamp(progress + 0.006, 0, 1))
     const angle = Math.atan2(ahead.y - center.y, ahead.x - center.x)
     context.save()
     context.translate(center.x, center.y)
     context.rotate(angle)
-    context.fillStyle = '#656b59'
+    context.fillStyle = '#68735a'
     context.beginPath()
     context.moveTo(6, 0)
     context.lineTo(-4, -5)
@@ -1033,33 +1058,28 @@ function drawPortal(position: Point, destination: boolean): void {
   context.save()
   context.translate(center.x, center.y)
   const color = destination ? '#d4776e' : '#b7c795'
-  context.fillStyle = '#0b0c0a'
-  context.strokeStyle = color
-  context.lineWidth = 3
-  context.beginPath()
-  context.arc(0, 0, 20, 0, Math.PI * 2)
+  context.rotate(destination ? 0.18 : -0.22)
+  organicBlob(24, destination ? 17 : 11, 8)
+  context.fillStyle = color
   context.fill()
-  context.stroke()
-  context.beginPath()
-  context.arc(0, 0, 11, 0, Math.PI * 2)
-  context.strokeStyle = color
-  context.lineWidth = 5
-  context.stroke()
+  organicBlob(16, destination ? 19 : 13, 8)
+  context.fillStyle = '#0c0f09'
+  context.fill()
   context.fillStyle = color
   if (destination) {
     context.beginPath()
-    context.moveTo(0, -7)
-    context.lineTo(7, 0)
-    context.lineTo(0, 7)
-    context.lineTo(-7, 0)
+    context.moveTo(1, -9)
+    context.lineTo(9, -1)
+    context.lineTo(-1, 9)
+    context.lineTo(-8, 1)
     context.closePath()
     context.fill()
   } else {
     context.beginPath()
-    context.moveTo(7, 0)
-    context.lineTo(-4, -7)
+    context.moveTo(10, -1)
+    context.lineTo(-5, -9)
     context.lineTo(-1, 0)
-    context.lineTo(-4, 7)
+    context.lineTo(-6, 9)
     context.closePath()
     context.fill()
   }
@@ -1071,18 +1091,17 @@ function drawTacticalNode(node: RuntimeNode): void {
   const radius = Math.min(canvasWidth, canvasHeight) * node.radius
   context.save()
   context.translate(center.x, center.y)
+  context.rotate(node.id % 2 ? -0.24 : 0.19)
   context.globalAlpha = node.activated ? 0.28 : 0.92
-  context.beginPath()
-  context.arc(0, 0, radius, 0, Math.PI * 2)
+  organicBlob(radius, node.id * 5.2, 10)
   context.fillStyle = 'rgba(151, 165, 126, .07)'
   context.fill()
-  context.fillStyle = '#0d0e0c'
-  context.strokeStyle = '#a7b58c'
-  context.lineWidth = 3
-  context.beginPath()
-  context.arc(0, 0, 17, 0, Math.PI * 2)
+  organicBlob(22, node.id * 7.1, 8)
+  context.fillStyle = '#9bac7d'
   context.fill()
-  context.stroke()
+  organicBlob(15, node.id * 7.1 + 2, 8)
+  context.fillStyle = '#0d0e0c'
+  context.fill()
   context.fillStyle = '#aab88d'
   context.lineWidth = 3
   if (node.kind === 'vitality') {
@@ -1118,17 +1137,17 @@ function drawTower(tower: RuntimeTower): void {
     cannon: '#a58a78'
   }
   const color = towerColor[tower.kind]
-  const radius = tower.kind === 'cannon' ? 15 : 13
+  const radius = tower.kind === 'cannon' ? 17 : 15
   context.save()
   context.translate(center.x, center.y)
+  context.rotate(tower.id * 0.51 - 0.3)
   if (phase === 'battle' && waveElapsed < jammedUntil) context.globalAlpha = 0.42
-  context.fillStyle = '#0c0d0b'
-  context.strokeStyle = color
-  context.lineWidth = 2.5
-  context.beginPath()
-  context.arc(0, 0, radius, 0, Math.PI * 2)
+  organicBlob(radius + 5, tower.id * 2.7, tower.kind === 'cannon' ? 7 : 9)
+  context.fillStyle = color
   context.fill()
-  context.stroke()
+  organicBlob(radius, tower.id * 3.3 + 1, tower.kind === 'cannon' ? 7 : 9)
+  context.fillStyle = '#0c0f0a'
+  context.fill()
   context.fillStyle = color
   if (tower.kind === 'pulse') {
     context.fillRect(-3, -9, 6, 18)
@@ -1144,23 +1163,29 @@ function drawTower(tower: RuntimeTower): void {
       context.stroke()
     }
   } else {
-    context.rotate(-Math.PI / 4)
-    context.fillRect(-4, -7 - tower.recoil * 14, 8, 18)
+    context.fillRect(-4, -8 - tower.recoil * 14, 8, 21)
   }
   if (tower.level === 2) {
-    context.strokeStyle = '#c6c2b4'
-    context.lineWidth = 2
-    context.beginPath()
-    context.arc(0, 0, radius + 5, 0, Math.PI * 2)
-    context.stroke()
+    context.fillStyle = '#d8d2bd'
+    for (const angle of [0.1, 2.2, 4.3]) {
+      context.beginPath()
+      context.arc(
+        Math.cos(angle) * (radius + 8),
+        Math.sin(angle) * (radius + 8),
+        2.4,
+        0,
+        Math.PI * 2
+      )
+      context.fill()
+    }
   }
   context.restore()
 }
 
 function drawUnit(unit: RuntimeUnit): void {
   if (!unit.alive) return
-  const position = px(pointOnRoute(route, unit.progress))
-  const ahead = px(pointOnRoute(route, clamp(unit.progress + 0.008, 0, 1)))
+  const position = routePixelAt(unit.progress)
+  const ahead = routePixelAt(clamp(unit.progress + 0.008, 0, 1))
   const angle = Math.atan2(ahead.y - position.y, ahead.x - position.x)
   const definition = unitDefinition(unit.kind, ownedMutations)
   const radius = Math.max(10, definition.radius * canvasWidth * 1.28)
@@ -1201,11 +1226,12 @@ function drawUnit(unit: RuntimeUnit): void {
     context.fill()
     context.stroke()
   } else {
-    roundedRect(context, -radius, -radius * 0.72, radius * 2, radius * 1.44, 4)
+    organicBlob(radius, unit.id * 1.9, 7)
     context.fill()
     context.stroke()
     context.fillStyle = '#2b335a'
-    context.fillRect(-radius * 0.12, -radius * 0.92, radius * 1.02, radius * 0.28)
+    context.rotate(-0.18)
+    context.fillRect(-radius * 0.08, -radius * 0.92, radius * 1.06, radius * 0.3)
   }
   context.rotate(-angle)
   const barWidth = radius * 2.1
@@ -1224,17 +1250,16 @@ function drawWaypoints(): void {
     const selected = index === selectedWaypoint
     context.save()
     context.translate(center.x, center.y)
-    const size = selected ? 17 : 14
-    context.fillStyle = selected ? '#b7c795' : '#1b1e18'
-    context.strokeStyle = selected ? '#eef0e7' : '#7d846e'
-    context.lineWidth = selected ? 3 : 2
-    context.beginPath()
-    context.arc(0, 0, size, 0, Math.PI * 2)
+    context.rotate(index * 0.73)
+    const size = selected ? 18 : 15
+    organicBlob(size + (selected ? 5 : 3), index * 4.3 + round, 8)
+    context.fillStyle = selected ? '#eef0e7' : '#747e66'
     context.fill()
-    context.stroke()
+    organicBlob(size, index * 5.1 + round, 8)
+    context.fillStyle = selected ? '#b7c795' : '#1b1e18'
+    context.fill()
     context.fillStyle = selected ? '#10120e' : '#aab88d'
-    context.beginPath()
-    context.arc(0, 0, 4, 0, Math.PI * 2)
+    organicBlob(4.5, index * 2.3, 6)
     context.fill()
     context.restore()
   })
