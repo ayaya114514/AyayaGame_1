@@ -59,12 +59,40 @@ describe('route helpers', () => {
     const valid = DEFAULT_ROUTE.map((point) => ({ ...point }))
     if (nodes[0]) valid[1] = { ...nodes[0].position }
     if (nodes[1]) valid[3] = { ...nodes[1].position }
+    if (nodes[0] && nodes[1]) {
+      valid[2] = {
+        x: (nodes[0].position.x + nodes[1].position.x) / 2,
+        y: (nodes[0].position.y + nodes[1].position.y) / 2
+      }
+    }
 
-    expect(evaluateRoutePlan(DEFAULT_ROUTE, nodes, 1.35).ready).toBe(false)
-    const status = evaluateRoutePlan(valid, nodes, 1.35)
+    expect(evaluateRoutePlan(DEFAULT_ROUTE, nodes, 1.28).ready).toBe(false)
+    const status = evaluateRoutePlan(valid, nodes, 1.28)
     expect(status.linked).toBe(2)
-    expect(status.length).toBeLessThanOrEqual(1.35)
+    expect(status.length).toBeLessThanOrEqual(1.28)
     expect(status.ready).toBe(true)
+  })
+
+  it('keeps the stricter route budget solvable in every campaign round', () => {
+    for (let round = 1; round <= 4; round += 1) {
+      const nodes = generateTacticalNodes(round)
+      const first = nodes[0]
+      const second = nodes[1]
+      expect(first).toBeDefined()
+      expect(second).toBeDefined()
+      if (!first || !second) continue
+      const route = [
+        { ...DEFAULT_ROUTE[0]! },
+        { ...first.position },
+        {
+          x: (first.position.x + second.position.x) / 2,
+          y: (first.position.y + second.position.y) / 2
+        },
+        { ...second.position },
+        { ...DEFAULT_ROUTE.at(-1)! }
+      ]
+      expect(evaluateRoutePlan(route, nodes, 1.28).ready).toBe(true)
+    }
   })
 })
 
@@ -143,7 +171,7 @@ describe('adaptive defense', () => {
       breaches: 0
     })
     expect(analysis.mode).toBe('lockdown')
-    expect(generateTowerBlueprints(DEFAULT_ROUTE, 1, analysis, 42)).toHaveLength(6)
+    expect(generateTowerBlueprints(DEFAULT_ROUTE, 1, analysis, 42)).toHaveLength(7)
     expect(analysis.counter).toContain('路标')
   })
 
@@ -163,8 +191,8 @@ describe('adaptive defense', () => {
     const analysis = analyzeArmy([])
     const early = generateTowerBlueprints(DEFAULT_ROUTE, 1, analysis, 42)
     const late = generateTowerBlueprints(DEFAULT_ROUTE, 5, analysis, 42)
-    expect(early).toHaveLength(5)
-    expect(late).toHaveLength(7)
+    expect(early).toHaveLength(6)
+    expect(late).toHaveLength(8)
     for (const tower of late) {
       expect(tower.position.x).toBeGreaterThanOrEqual(0.08)
       expect(tower.position.x).toBeLessThanOrEqual(0.92)

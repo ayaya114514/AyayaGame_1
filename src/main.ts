@@ -94,9 +94,10 @@ type WaveStats = {
 }
 
 const MAX_ROUNDS = 4
-const MAX_CORE = 32
-const STARTING_CREDITS = 132
-const MAX_ROUTE_LENGTH = 1.35
+const MAX_CORE = 36
+const STARTING_CREDITS = 120
+const MAX_ROUTE_LENGTH = 1.28
+const REPEATED_ROUTE_DAMAGE = 1.8
 const MIN_BATCHES = 2
 const MAX_BATCHES = 4
 const maybeApp = document.querySelector<HTMLDivElement>('#app')
@@ -113,8 +114,8 @@ app.innerHTML = `
           <a class="brand" href="." aria-label="Ayaya Breach Protocol 首页"><strong>Ayaya</strong></a>
           <div class="field-hud" aria-label="战局状态">
             <div class="hud-stat round-stat"><span>回合</span><strong id="round-value">1 / 4</strong></div>
-            <div class="hud-stat core-stat"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 2 7 6-2.7 10H7.7L5 8l7-6Z"/></svg><strong id="core-value">32</strong></div>
-            <div class="hud-stat credit-stat"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 4 8v8l8 5 8-5V8l-8-5Zm0 5v8m-4-6 4 2 4-2"/></svg><strong id="credit-value">132</strong></div>
+            <div class="hud-stat core-stat"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 2 7 6-2.7 10H7.7L5 8l7-6Z"/></svg><strong id="core-value">36</strong></div>
+            <div class="hud-stat credit-stat"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 4 8v8l8 5 8-5V8l-8-5Zm0 5v8m-4-6 4 2 4-2"/></svg><strong id="credit-value">120</strong></div>
           </div>
           <div class="guide" role="status" aria-live="polite">
             <span id="guide-step">1 / 3 · 路线</span>
@@ -135,13 +136,13 @@ app.innerHTML = `
           <div class="sr-only" id="map-hint">拖动白色节点，串起两枚中继</div>
           <div class="wave-progress" id="wave-progress" hidden><i></i></div>
           <div class="combat-toast" id="combat-toast" role="status" aria-live="polite"></div>
-          <div class="route-dashboard" aria-label="路线评估">
-            <div class="route-number"><span>路线</span><strong id="route-length">1.52</strong><small>/ 1.35</small></div>
-            <div class="route-meter"><i id="route-meter-fill"></i><b></b></div>
-            <div class="relay-line"><div class="relay-strip" id="relay-dots" aria-hidden="true"><i></i><span></span><i></i></div><span>中继 <strong id="relay-value">0 / 2</strong></span></div>
-            <strong id="trace-value">路线无效</strong>
-          </div>
-          <section class="swarm-control" aria-label="出兵顺序">
+          <section class="swarm-control" aria-label="路线与出兵指挥区">
+            <div class="route-dashboard" aria-label="路线评估">
+              <div class="route-number"><span>路线</span><strong id="route-length">1.52</strong><small>/ 1.28</small></div>
+              <div class="route-meter"><i id="route-meter-fill"></i><b></b></div>
+              <div class="relay-line"><div class="relay-strip" id="relay-dots" aria-hidden="true"><i></i><span></span><i></i></div><span>中继 <strong id="relay-value">0 / 2</strong></span></div>
+              <strong id="trace-value">路线无效</strong>
+            </div>
             <div class="unit-market" id="unit-market">
               <button class="unit-card slime" type="button" data-unit="slime" aria-label="加入史莱姆">
                 <svg class="unit-glyph" viewBox="0 0 64 64" aria-hidden="true"><path d="M10 42c0-17 8-29 22-29s22 12 22 29c0 8-9 11-15 7-5 5-10 5-15 0-6 4-14 1-14-7Z"/><circle cx="27" cy="33" r="2.5"/><circle cx="39" cy="33" r="2.5"/></svg>
@@ -366,10 +367,10 @@ function updateUI(): void {
   ui.relayDots.querySelectorAll('i').forEach((dot, index) => {
     dot.classList.toggle('linked', index < routeStatus.linked)
   })
-  ui.traceValue.textContent = routeRepeated ? `重复路线 · 火力 +60%` : `火力覆盖 ${threatPercent}%`
+  ui.traceValue.textContent = routeRepeated ? `重复路线 · 火力 +80%` : `火力覆盖 ${threatPercent}%`
   ui.traceValue.className = routeRepeated || threatPercent >= 55 ? 'danger-value' : 'ready-value'
   ui.defenseCopy.textContent = routeRepeated
-    ? '路径暴露 · 火力 +60%'
+    ? '路径暴露 · 火力 +80%'
     : round > 1
       ? '火力已重布'
       : '红色 = 火力覆盖'
@@ -565,7 +566,7 @@ function damageUnit(
   }
   const ignoresArmor = tower.kind === 'cannon' ? 0.55 : 0
   const armor = definition.armor * (1 - ignoresArmor)
-  const repetitionPenalty = routeRepeated ? 1.6 : 1
+  const repetitionPenalty = routeRepeated ? REPEATED_ROUTE_DAMAGE : 1
   const splashMultiplier = isSplash ? 1.08 : 1
   target.hp -= damage * splashMultiplier * repetitionPenalty * (1 - armor)
   target.flash = 0.12

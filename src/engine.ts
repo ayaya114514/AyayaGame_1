@@ -625,7 +625,7 @@ export function generateTowerBlueprints(
   seed = 1
 ): TowerBlueprint[] {
   const random = seededRandom(seed + round * 811)
-  const count = clamp(5 + Math.floor(round / 2) + (analysis.mode === 'lockdown' ? 1 : 0), 5, 8)
+  const count = clamp(6 + Math.floor(round / 2) + (analysis.mode === 'lockdown' ? 1 : 0), 6, 9)
   const towers: TowerBlueprint[] = []
 
   for (let index = 0; index < count; index += 1) {
@@ -647,7 +647,7 @@ export function generateTowerBlueprints(
         y: clamp(here.y + (dx / magnitude) * offset, 0.12, 0.88)
       },
       range: TOWER_DEFS[kind].range,
-      level: round >= 4 && index % 3 === 0 ? 2 : 1
+      level: round >= 3 && index % 3 === 0 ? 2 : 1
     })
   }
 
