@@ -2,10 +2,11 @@ import { describe, expect, it } from 'vitest'
 import {
   DEFAULT_ROUTE,
   analyzeArmy,
+  boardExposureLimit,
   buildSpawnPlan,
   coreDamageFor,
   evaluateRoutePlan,
-  formationMatchup,
+  exposureLimitForRound,
   generateTowerBlueprints,
   generateTacticalNodes,
   linkedNodeIds,
@@ -130,10 +131,71 @@ describe('route helpers', () => {
       expect(
         routes.some(
           (route) =>
-            evaluateRoutePlan(route, nodes, 1.28, 2).ready && routeExposure(route, towers) <= 0.58
+            evaluateRoutePlan(route, nodes, 1.28, 2).ready &&
+            routeExposure(route, towers) <= exposureLimitForRound(round)
         )
       ).toBe(true)
     }
+  })
+
+  it('stays solvable against representative learned defenses', () => {
+    const defenseRoutes = [
+      [0.5, 0.5, 0.5],
+      [0.28, 0.34, 0.4],
+      [0.72, 0.66, 0.6],
+      [0.35, 0.55, 0.42]
+    ].map((ys) => [
+      { ...DEFAULT_ROUTE[0]! },
+      ...ys.map((y, index) => ({ x: [0.25, 0.5, 0.75][index] ?? 0.5, y })),
+      { ...DEFAULT_ROUTE.at(-1)! }
+    ])
+    const defenses = [
+      analyzeArmy([]),
+      analyzeArmy(Array.from({ length: 4 }, (_, id) => ({ id, kind: 'swift' as const }))),
+      analyzeArmy(Array.from({ length: 3 }, (_, id) => ({ id, kind: 'tank' as const }))),
+      analyzeArmy(Array.from({ length: 4 }, (_, id) => ({ id, kind: 'slime' as const })))
+    ]
+
+    for (let round = 1; round <= 4; round += 1) {
+      const nodes = generateTacticalNodes(round)
+      const routes = [0, 1, 2].flatMap((freeIndex) =>
+        Array.from({ length: 17 }, (_, step) => {
+          const waypoints = nodes.map((node) => ({ ...node.position }))
+          waypoints[freeIndex] = {
+            x: [0.25, 0.5, 0.75][freeIndex] ?? 0.5,
+            y: 0.1 + step * 0.05
+          }
+          return [{ ...DEFAULT_ROUTE[0]! }, ...waypoints, { ...DEFAULT_ROUTE.at(-1)! }]
+        })
+      )
+
+      for (const [routeIndex, defenseRoute] of defenseRoutes.entries()) {
+        const seed = routeSignature(defenseRoute)
+          .split('-')
+          .reduce((sum, value) => sum * 17 + Number(value), 19)
+        for (const [defenseIndex, defense] of defenses.entries()) {
+          const towers = generateTowerBlueprints(defenseRoute, round, defense, seed)
+          const legalExposures = routes
+            .filter((route) => evaluateRoutePlan(route, nodes, 1.28, 2).ready)
+            .map((route) => routeExposure(route, towers))
+          const minimumExposure = Math.min(...legalExposures)
+          const limit = boardExposureLimit(round, nodes, towers, 1.28, 2)
+          expect(
+            minimumExposure,
+            `round ${round}, route ${routeIndex}, defense ${defenseIndex}`
+          ).toBeLessThanOrEqual(limit)
+          expect(
+            limit,
+            `cap round ${round}, route ${routeIndex}, defense ${defenseIndex}`
+          ).toBeLessThanOrEqual(0.74)
+        }
+      }
+    }
+  })
+
+  it('tightens the fire budget each round without dropping below 52%', () => {
+    expect([1, 2, 3, 4].map(exposureLimitForRound)).toEqual([0.58, 0.56, 0.54, 0.52])
+    expect(exposureLimitForRound(99)).toBe(0.52)
   })
 })
 
@@ -145,7 +207,7 @@ describe('army scheduling', () => {
   ]
 
   it('expands purchased batches into individual units', () => {
-    const plan = buildSpawnPlan(queue, 'steady')
+    const plan = buildSpawnPlan(queue)
     expect(plan).toHaveLength(6)
     expect(plan.map((entry) => entry.kind)).toEqual([
       'slime',
@@ -157,15 +219,15 @@ describe('army scheduling', () => {
     ])
   })
 
-  it('gives split deployment more total separation than rush', () => {
-    const rush = buildSpawnPlan(queue, 'rush')
-    const split = buildSpawnPlan(queue, 'split')
-    expect(split.at(-1)?.at).toBeGreaterThan(rush.at(-1)?.at ?? 0)
+  it('preserves batch order in the fixed readable cadence', () => {
+    const plan = buildSpawnPlan(queue)
+    expect(plan.map((entry) => entry.batchId)).toEqual([1, 1, 1, 2, 2, 3])
+    expect(plan.at(-1)?.at).toBeGreaterThan(plan[0]?.at ?? 0)
   })
 
   it('adds one unit to every slime batch after the fission mutation', () => {
-    const baseline = buildSpawnPlan(queue, 'steady')
-    const evolved = buildSpawnPlan(queue, 'steady', ['slime_bloom'])
+    const baseline = buildSpawnPlan(queue)
+    const evolved = buildSpawnPlan(queue, ['slime_bloom'])
     expect(evolved).toHaveLength(baseline.length + 1)
   })
 })
@@ -199,9 +261,9 @@ describe('adaptive defense', () => {
       id: index + 1,
       kind: 'slime' as const
     }))
-    const analysis = analyzeArmy(swarm, undefined, 'rush')
+    const analysis = analyzeArmy(swarm)
     expect(analysis.mode).toBe('suppress')
-    expect(analysis.counter).toContain('分批')
+    expect(analysis.counter).toContain('疾行兽')
   })
 
   it('locks down a repeated route with an extra tower', () => {
@@ -216,16 +278,15 @@ describe('adaptive defense', () => {
     expect(analysis.counter).toContain('路标')
   })
 
-  it('responds to the previous successful rush instead of reading the new queue', () => {
+  it('responds to a successful slime swarm instead of reading the new queue', () => {
     const analysis = analyzeArmy([{ id: 1, kind: 'tank' }], {
       swiftRatio: 0,
       tankRatio: 0,
       repeatedRoute: false,
-      breaches: 4,
-      formation: 'rush'
+      breaches: 4
     })
     expect(analysis.mode).toBe('suppress')
-    expect(analysis.counter).toContain('分批')
+    expect(analysis.counter).toContain('疾行兽')
   })
 
   it('places more towers in later rounds without leaving the battlefield', () => {
@@ -243,28 +304,14 @@ describe('adaptive defense', () => {
   })
 })
 
-describe('formation matchups', () => {
-  it('lets split deployment sharply reduce suppression splash', () => {
-    const matchup = formationMatchup('split', 'suppress')
-    expect(matchup.state).toBe('favored')
-    expect(matchup.splashMultiplier).toBeLessThan(0.5)
-  })
-
-  it('makes repeated-route lockdown punish isolated split waves', () => {
-    const matchup = formationMatchup('split', 'lockdown')
-    expect(matchup.state).toBe('exposed')
-    expect(matchup.damageMultiplier).toBeGreaterThan(1)
-  })
-})
-
 describe('evolution system', () => {
-  it('applies persistent unit, economy and command modifiers', () => {
-    const mutations = ['tank_plating', 'brood_discount', 'emp_overload'] as const
+  it('applies persistent unit, economy and relay modifiers', () => {
+    const mutations = ['tank_plating', 'brood_discount', 'jammer_echo'] as const
     const modifiers = modifiersFor([...mutations])
     expect(unitDefinition('tank', [...mutations]).hp).toBeGreaterThan(158)
     expect(unitDefinition('tank', [...mutations]).armor).toBeCloseTo(0.38)
     expect(unitCost('swift', [...mutations])).toBe(36)
-    expect(modifiers.empDuration).toBe(3)
+    expect(modifiers.jammerDuration).toBe(3)
   })
 
   it('offers three unique mutations that have not been acquired', () => {

@@ -5,6 +5,7 @@ import {
   TOWER_DEFS,
   UNIT_DEFS,
   analyzeArmy,
+  boardExposureLimit,
   buildSpawnPlan,
   clamp,
   compositionOf,
@@ -98,7 +99,6 @@ const MAX_ROUNDS = 4
 const MAX_CORE = 36
 const STARTING_CREDITS = 120
 const MAX_ROUTE_LENGTH = 1.28
-const MAX_ROUTE_EXPOSURE = 0.58
 const REQUIRED_RELAYS = 2
 const REPEATED_ROUTE_THRESHOLD = 0.72
 const REPEATED_ROUTE_DAMAGE = 1.8
@@ -114,7 +114,7 @@ app.innerHTML = `
     <main class="game-stage">
       <section class="battlefield" aria-label="战场">
         <div class="canvas-wrap">
-          <canvas id="battlefield" tabindex="0" aria-label="路线战场。拖动三个圆形路标，从三枚中继中任选两枚连接，并将红色火力路段控制在百分之五十八以内。"></canvas>
+          <canvas id="battlefield" tabindex="0" aria-label="路线战场。拖动三个圆形路标，从三枚中继中任选两枚连接，并将红色火力路段控制在本回合上限内。"></canvas>
           <a class="brand" href="." aria-label="Ayaya Breach Protocol 首页"><strong>Ayaya</strong></a>
           <div class="field-hud" aria-label="战局状态">
             <div class="hud-stat round-stat"><span>回合</span><strong id="round-value">1 / 4</strong></div>
@@ -141,26 +141,26 @@ app.innerHTML = `
           <section class="swarm-control" aria-label="路线与出兵指挥区">
             <div class="route-dashboard" aria-label="路线评估">
               <div class="route-fact"><span>中继</span><strong id="relay-value">0 / 2</strong></div>
-              <div class="route-fact"><span>红路</span><strong id="trace-value">--%</strong><small>≤58%</small></div>
+              <div class="route-fact"><span>红路</span><strong id="trace-value">--%</strong><small id="threat-limit">≤58%</small></div>
               <div class="route-fact"><span>长度</span><strong id="route-length">1.52</strong><small>≤1.28</small></div>
             </div>
             <div class="unit-market" id="unit-market">
               <button class="unit-card slime" type="button" data-unit="slime" aria-label="加入史莱姆">
                 <svg class="unit-glyph" viewBox="0 0 64 64" aria-hidden="true"><path d="M10 42c0-17 8-29 22-29s22 12 22 29c0 8-9 11-15 7-5 5-10 5-15 0-6 4-14 1-14-7Z"/><circle cx="27" cy="33" r="2.5"/><circle cx="39" cy="33" r="2.5"/></svg>
-                <span class="unit-copy"><strong>史莱姆</strong><small>诱饵 · <em>×3</em></small></span><b class="unit-cost">30</b>
+                <span class="unit-copy"><strong>史莱姆 <em>×3</em></strong><small>诱饵 · <b class="unit-cost">30</b></small></span>
               </button>
               <button class="unit-card swift" type="button" data-unit="swift" aria-label="加入疾行兽">
                 <svg class="unit-glyph" viewBox="0 0 64 64" aria-hidden="true"><path d="m56 32-42 21 11-21-11-21 42 21Z"/><path d="m24 32-15 8 7-8-7-8 15 8Z"/></svg>
-                <span class="unit-copy"><strong>疾行兽</strong><small>高速 · <em>×2</em></small></span><b class="unit-cost">42</b>
+                <span class="unit-copy"><strong>疾行兽 <em>×2</em></strong><small>高速 · <b class="unit-cost">42</b></small></span>
               </button>
               <button class="unit-card tank" type="button" data-unit="tank" aria-label="加入铁甲兽">
                 <svg class="unit-glyph" viewBox="0 0 64 64" aria-hidden="true"><path d="M12 18h38v35H12z"/><path d="M20 10h28v15H20zm30 18h8v10h-8z"/><circle cx="22" cy="53" r="5"/><circle cx="43" cy="53" r="5"/></svg>
-                <span class="unit-copy"><strong>铁甲兽</strong><small>重装 · <em>×1</em></small></span><b class="unit-cost">60</b>
+                <span class="unit-copy"><strong>铁甲兽 <em>×1</em></strong><small>重装 · <b class="unit-cost">60</b></small></span>
               </button>
             </div>
             <div class="queue-track" id="queue-track" aria-label="当前出兵序列"></div>
             <div class="launch-zone">
-              <div class="readiness sr-only"><i id="ready-light"></i><strong id="ready-title">路线无效</strong><small id="ready-copy">经过两个中继并缩短路线</small></div>
+              <div class="readiness sr-only"><i id="ready-light"></i><strong id="ready-title">路线无效</strong><small id="ready-copy">经过两枚中继并避开红路</small></div>
               <button class="launch-button" id="launch-button" type="button" disabled>
                 <svg viewBox="0 0 32 32" aria-hidden="true"><path d="m7 25 18-9L7 7l4 9-4 9Z"/></svg>
                 <span>出发</span>
@@ -214,6 +214,7 @@ const ui = {
   routeLength: byId('route-length'),
   relayValue: byId('relay-value'),
   traceValue: byId('trace-value'),
+  threatLimit: byId('threat-limit'),
   queue: byId('queue-track'),
   market: byId('unit-market'),
   readyLight: byId('ready-light'),
@@ -337,7 +338,8 @@ function updateUI(): void {
   routeRepeated = round > 1 && similarity >= REPEATED_ROUTE_THRESHOLD
   const threatRatio = routeExposure(route, towers)
   const threatPercent = Math.round(threatRatio * 100)
-  const threatLimit = Math.round(MAX_ROUTE_EXPOSURE * 100)
+  const exposureLimit = boardExposureLimit(round, nodes, towers, MAX_ROUTE_LENGTH, REQUIRED_RELAYS)
+  const threatLimit = Math.round(exposureLimit * 100)
 
   ui.round.textContent = `${round} / ${MAX_ROUNDS}`
   ui.core.textContent = Math.ceil(core).toString()
@@ -347,9 +349,9 @@ function updateUI(): void {
   ui.relayValue.textContent = `${Math.min(routeStatus.linked, routeStatus.required)} / ${routeStatus.required}`
   ui.relayValue.className =
     routeStatus.linked >= routeStatus.required ? 'ready-value' : 'danger-value'
-  ui.traceValue.textContent = routeRepeated ? `${threatPercent}% +80%` : `${threatPercent}%`
-  ui.traceValue.className =
-    routeRepeated || threatRatio > MAX_ROUTE_EXPOSURE ? 'danger-value' : 'ready-value'
+  ui.traceValue.textContent = `${threatPercent}%`
+  ui.traceValue.className = threatRatio > exposureLimit ? 'danger-value' : 'ready-value'
+  ui.threatLimit.textContent = `≤${threatLimit}%`
 
   ui.queue.innerHTML = queue.length
     ? queue
@@ -381,7 +383,7 @@ function updateUI(): void {
     0
   )
   const armyReady = queue.length >= MIN_BATCHES
-  const routeSafe = routeStatus.ready && threatRatio <= MAX_ROUTE_EXPOSURE
+  const routeSafe = routeStatus.ready && threatRatio <= exposureLimit
   const canLaunch = isPlanning && armyReady && routeSafe
   ui.launch.disabled = !canLaunch
   ui.readyLight.classList.toggle('ready', canLaunch)
@@ -390,7 +392,7 @@ function updateUI(): void {
       ? `还差 ${routeStatus.required - routeStatus.linked} 个中继`
       : routeStatus.remaining < 0
         ? `路线超出 ${Math.abs(routeStatus.remaining).toFixed(2)}`
-        : threatRatio > MAX_ROUTE_EXPOSURE
+        : threatRatio > exposureLimit
           ? `红路超出 ${threatPercent - threatLimit}%`
           : !armyReady
             ? `还需 ${MIN_BATCHES - queue.length} 批单位`
@@ -398,25 +400,26 @@ function updateUI(): void {
   ui.readyCopy.textContent = canLaunch ? '可以出发' : '拖路线或调整队列'
   ui.phase.textContent = phase === 'battle' ? '突破中' : phase === 'planning' ? '规划中' : '结算中'
   if (phase === 'battle') {
-    ui.guideTitle.textContent = `第 ${round} 回合 · 突破中`
-    ui.guideCopy.textContent = '下一轮防线会学习本轮路线与出兵顺序'
+    ui.guideTitle.textContent = `${analysis.name} · 突破中`
+    ui.guideCopy.textContent = '记住最先倒下的单位，下一轮调整顺序'
   } else if (routeStatus.linked < routeStatus.required) {
     ui.guideTitle.textContent = '任选两枚中继'
     ui.guideCopy.textContent = '修复、加速、停火效果不同；拖动白色节点连接'
   } else if (routeStatus.remaining < 0) {
     ui.guideTitle.textContent = `再缩短 ${Math.abs(routeStatus.remaining).toFixed(2)}`
     ui.guideCopy.textContent = '保留已选中继，把折线拉直'
-  } else if (threatRatio > MAX_ROUTE_EXPOSURE) {
+  } else if (threatRatio > exposureLimit) {
     ui.guideTitle.textContent = `把红路降到 ${threatLimit}%`
     ui.guideCopy.textContent = '移动空闲路标，绕开防御塔射程'
+  } else if (routeRepeated) {
+    ui.guideTitle.textContent = '旧路线 · 塔伤提高 80%'
+    ui.guideCopy.textContent = '至少移动两个白色节点，或承担风险出发'
   } else if (!armyReady) {
     ui.guideTitle.textContent = `再选择 ${MIN_BATCHES - queue.length} 批单位`
-    ui.guideCopy.textContent = '先头会先吃火力，点击队列可以撤回'
+    ui.guideCopy.textContent = analysis.counter
   } else {
-    ui.guideTitle.textContent = routeRepeated ? '旧路线已被锁定' : '决定谁先承受火力'
-    ui.guideCopy.textContent = routeRepeated
-      ? '仍可出发，但全部塔伤提高 80%'
-      : '调整出场顺序，准备好后发起突破'
+    ui.guideTitle.textContent = '顺序决定谁先挨打'
+    ui.guideCopy.textContent = analysis.counter
   }
   ui.mapHint.classList.toggle('hidden', !isPlanning || routeStatus.ready)
   ui.speed.disabled = phase !== 'battle'
@@ -434,6 +437,20 @@ function showToast(message: string, tone: 'neutral' | 'success' | 'danger' = 'ne
   ui.combatToast.textContent = message
   ui.combatToast.className = `combat-toast visible ${tone}`
   toastTimer = 1.8
+}
+
+function waveDiagnosis(): string {
+  if (waveStats.breaches > 0) {
+    return waveStats.coreDamage >= 8
+      ? '这套顺序造成了有效突破；下一轮防线会针对本轮主力。'
+      : `突破量不足。${analysis.counter}`
+  }
+  if (waveStats.nodes < REQUIRED_RELAYS) {
+    return `队伍没能穿过第二枚中继。${analysis.counter}`
+  }
+  return routeRepeated
+    ? '旧路线的额外火力击溃了全队。下一轮先换线。'
+    : `全军倒在核心前。${analysis.counter}`
 }
 
 function addBatch(kind: UnitKind): void {
@@ -460,10 +477,11 @@ function removeBatch(id: number): void {
 
 function launchWave(): void {
   const routeStatus = evaluateRoutePlan(route, nodes, MAX_ROUTE_LENGTH, REQUIRED_RELAYS)
-  const routeSafe = routeStatus.ready && routeExposure(route, towers) <= MAX_ROUTE_EXPOSURE
+  const exposureLimit = boardExposureLimit(round, nodes, towers, MAX_ROUTE_LENGTH, REQUIRED_RELAYS)
+  const routeSafe = routeStatus.ready && routeExposure(route, towers) <= exposureLimit
   if (phase !== 'planning' || queue.length < MIN_BATCHES || !routeSafe) return
   phase = 'battle'
-  spawnPlan = buildSpawnPlan(queue, 'steady', ownedMutations)
+  spawnPlan = buildSpawnPlan(queue, ownedMutations)
   spawnIndex = 0
   waveElapsed = 0
   waveStats = { deployed: spawnPlan.length, destroyed: 0, breaches: 0, coreDamage: 0, nodes: 0 }
@@ -589,7 +607,8 @@ function activateNode(node: RuntimeNode): void {
   node.activated = true
   waveStats.nodes += 1
   const definition = TACTICAL_NODE_DEFS[node.kind]
-  const multiplier = modifiersFor(ownedMutations).nodeMultiplier
+  const modifiers = modifiersFor(ownedMutations)
+  const multiplier = modifiers.nodeMultiplier
 
   if (node.kind === 'vitality') {
     for (const unit of units) {
@@ -599,7 +618,7 @@ function activateNode(node: RuntimeNode): void {
   } else if (node.kind === 'haste') {
     globalBoostUntil = Math.max(globalBoostUntil, waveElapsed + 2.4 * multiplier)
   } else {
-    jammedUntil = Math.max(jammedUntil, waveElapsed + 1.8 * multiplier)
+    jammedUntil = Math.max(jammedUntil, waveElapsed + modifiers.jammerDuration * multiplier)
   }
 
   score += 180
@@ -766,9 +785,7 @@ function finishWave(): void {
 
   byId('summary-index').textContent = `第 ${round} 回合`
   byId('summary-title').textContent = waveStats.breaches ? '突破完成' : '全部被拦截'
-  byId('summary-copy').textContent = waveStats.breaches
-    ? `核心受到 ${waveStats.coreDamage} 点伤害，${waveStats.destroyed} 个单位被消灭。`
-    : '没有单位抵达核心。下一轮必须换路线或调整出兵顺序。'
+  byId('summary-copy').textContent = waveDiagnosis()
   byId('stat-deployed').textContent = waveStats.deployed.toString()
   byId('stat-breaches').textContent = waveStats.breaches.toString()
   byId('stat-damage').textContent = waveStats.coreDamage.toString()
@@ -1097,7 +1114,7 @@ function drawPortal(position: Point, destination: boolean): void {
   context.restore()
   context.save()
   context.fillStyle = destination ? '#e27b72' : '#c9dfa0'
-  context.font = '650 10px ui-sans-serif, sans-serif'
+  context.font = '650 12px ui-sans-serif, sans-serif'
   context.textAlign = destination ? 'right' : 'left'
   context.fillText(
     destination ? '核心' : '入口',
@@ -1162,7 +1179,7 @@ function drawTacticalNode(node: RuntimeNode): void {
   const nodeLabels = { vitality: '修复', haste: '加速', jammer: '停火' } as const
   context.globalAlpha = node.activated ? 0.45 : connected ? 1 : 0.74
   context.fillStyle = connected ? definition.color : '#d7dec9'
-  context.font = '700 11px ui-sans-serif, sans-serif'
+  context.font = '700 13px ui-sans-serif, sans-serif'
   context.textAlign = 'center'
   context.fillText(
     `${connected && phase === 'planning' ? '✓ ' : ''}${nodeLabels[node.kind]}`,
@@ -1337,7 +1354,7 @@ function drawEffects(): void {
     context.save()
     context.globalAlpha = clamp(label.life / 0.8, 0, 1)
     context.fillStyle = label.color
-    context.font = '600 9px ui-sans-serif, sans-serif'
+    context.font = '650 12px ui-sans-serif, sans-serif'
     context.textAlign = 'center'
     context.fillText(label.text, position.x, position.y)
     context.restore()

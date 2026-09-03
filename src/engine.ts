@@ -1,7 +1,5 @@
 export type UnitKind = 'slime' | 'swift' | 'tank'
 export type TowerKind = 'pulse' | 'frost' | 'cannon'
-export type Formation = 'rush' | 'steady' | 'split'
-export type CommandKind = 'blackout' | 'overdrive' | 'mend'
 export type MutationId =
   | 'slime_bloom'
   | 'swift_phase'
@@ -9,7 +7,7 @@ export type MutationId =
   | 'brood_discount'
   | 'neural_drive'
   | 'signal_leech'
-  | 'emp_overload'
+  | 'jammer_echo'
 export type TacticalNodeKind = 'vitality' | 'haste' | 'jammer'
 
 export type Point = {
@@ -48,7 +46,6 @@ export type AIHistory = {
   tankRatio: number
   repeatedRoute: boolean
   breaches: number
-  formation?: Formation
 }
 
 export type AIAnalysis = {
@@ -58,15 +55,6 @@ export type AIAnalysis = {
   counter: string
   mix: Record<TowerKind, number>
   accent: string
-}
-
-export type FormationMatchup = {
-  state: 'favored' | 'neutral' | 'exposed'
-  label: string
-  detail: string
-  damageMultiplier: number
-  slowMultiplier: number
-  splashMultiplier: number
 }
 
 export type MutationDefinition = {
@@ -86,7 +74,7 @@ export type CombatModifiers = {
   speedMultiplier: number
   nodeMultiplier: number
   breachCredit: number
-  empDuration: number
+  jammerDuration: number
 }
 
 export type TacticalNodeBlueprint = {
@@ -103,13 +91,6 @@ export type RoutePlanStatus = {
   length: number
   remaining: number
   ready: boolean
-}
-
-export type CommandDefinition = {
-  name: string
-  short: string
-  detail: string
-  color: string
 }
 
 export type TowerBlueprint = {
@@ -169,11 +150,11 @@ export const MUTATION_DEFS: Record<MutationId, MutationDefinition> = {
     detail: '每次突破核心都会掠夺 2 资源。',
     accent: '#ff9fcb'
   },
-  emp_overload: {
-    id: 'emp_overload',
-    name: '过载脉冲',
-    code: 'EMP +1.2S',
-    detail: '每波一次的 EMP 指令持续时间增加 1.2 秒。',
+  jammer_echo: {
+    id: 'jammer_echo',
+    name: '干扰回声',
+    code: 'JAM +1.2S',
+    detail: '停火中继的效果延长 1.2 秒。',
     accent: '#8ae9ff'
   }
 }
@@ -199,27 +180,6 @@ export const TACTICAL_NODE_DEFS: Record<
     code: 'JAM',
     detail: '首个抵达单位使所有防御塔离线。',
     color: '#7bdfff'
-  }
-}
-
-export const COMMAND_DEFS: Record<CommandKind, CommandDefinition> = {
-  blackout: {
-    name: '静默脉冲',
-    short: '停火 1.8 秒',
-    detail: '让全部防御塔暂时离线。适合穿越重叠射界。',
-    color: '#83d7ff'
-  },
-  overdrive: {
-    name: '过载冲刺',
-    short: '全军加速 2.4 秒',
-    detail: '短时间提高全军速度。适合冲过迟滞防线。',
-    color: '#ffd56a'
-  },
-  mend: {
-    name: '再生指令',
-    short: '恢复 38% 生命',
-    detail: '修复场上所有存活单位。适合保护铁甲兽。',
-    color: '#7ee2ae'
   }
 }
 
@@ -265,22 +225,22 @@ export const UNIT_DEFS: Record<UnitKind, UnitDefinition> = {
 export const TOWER_DEFS: Record<TowerKind, TowerDefinition> = {
   pulse: {
     name: '脉冲塔',
-    damage: 6,
-    range: 0.155,
+    damage: 7,
+    range: 0.14,
     fireRate: 0.52,
     color: '#ff7188'
   },
   frost: {
     name: '迟滞塔',
-    damage: 3,
-    range: 0.145,
+    damage: 4,
+    range: 0.135,
     fireRate: 0.74,
     color: '#70d9ff'
   },
   cannon: {
     name: '穿甲炮',
-    damage: 20,
-    range: 0.18,
+    damage: 24,
+    range: 0.145,
     fireRate: 1.48,
     color: '#ffac66'
   }
@@ -409,6 +369,46 @@ export function routeExposure(
   return exposed / (sampleCount + 1)
 }
 
+export function exposureLimitForRound(round: number): number {
+  const limit = clamp(0.58 - (Math.max(1, Math.floor(round)) - 1) * 0.02, 0.52, 0.58)
+  return Math.round(limit * 100) / 100
+}
+
+function routeCandidatesThroughNodes(nodes: TacticalNodeBlueprint[]): Point[][] {
+  if (nodes.length !== 3) return []
+  const start = DEFAULT_ROUTE[0]
+  const end = DEFAULT_ROUTE.at(-1)
+  if (!start || !end) return []
+  const waypointX = [0.25, 0.5, 0.75]
+  return nodes.flatMap((_, freeIndex) =>
+    Array.from({ length: 17 }, (_, step) => {
+      const waypoints = nodes.map((node) => ({ ...node.position }))
+      waypoints[freeIndex] = {
+        x: waypointX[freeIndex] ?? 0.5,
+        y: 0.1 + step * 0.05
+      }
+      return [{ ...start }, ...waypoints, { ...end }]
+    })
+  )
+}
+
+export function boardExposureLimit(
+  round: number,
+  nodes: TacticalNodeBlueprint[],
+  towers: Pick<TowerBlueprint, 'position' | 'range'>[],
+  maxLength: number,
+  requiredNodes = 2
+): number {
+  const baseLimit = exposureLimitForRound(round)
+  const legalRoutes = routeCandidatesThroughNodes(nodes).filter(
+    (route) => evaluateRoutePlan(route, nodes, maxLength, requiredNodes).ready
+  )
+  if (legalRoutes.length === 0) return baseLimit
+  const minimumExposure = Math.min(...legalRoutes.map((route) => routeExposure(route, towers)))
+  const playableLimit = Math.ceil((minimumExposure + 0.02) * 100) / 100
+  return clamp(Math.max(baseLimit, playableLimit), baseLimit, 1)
+}
+
 export function routeSimilarity(points: Point[], previous: Point[] | null): number {
   if (!previous || points.length !== previous.length || points.length < 3) return 0
   const editable = points.slice(1, -1)
@@ -426,11 +426,7 @@ export function coreDamageFor(breach: number, activatedNodes: number): number {
   return breach * (activatedNodes >= 2 ? 1 : 0.5)
 }
 
-export function analyzeArmy(
-  queue: ArmyBatch[],
-  history?: AIHistory,
-  formation: Formation = 'steady'
-): AIAnalysis {
+export function analyzeArmy(queue: ArmyBatch[], history?: AIHistory): AIAnalysis {
   const totalUnits = queue.reduce((sum, batch) => sum + UNIT_DEFS[batch.kind].count, 0) || 1
   const slimeUnits = queue
     .filter((batch) => batch.kind === 'slime')
@@ -447,32 +443,33 @@ export function analyzeArmy(
       mode: 'lockdown',
       name: '路径封锁',
       detail: 'AI 已锁定上一条路线，沿旧路径增设交叉火力。重复走线会让塔伤提高 80%。',
-      counter: '破解：移动至少两个路标，或用静默脉冲穿越封锁区。',
+      counter: '旧路火力提高 80%；先移动至少两个路标。',
       mix: { pulse: 0.5, frost: 0.26, cannon: 0.24 },
       accent: '#f07a72'
     }
   }
 
-  if (history?.formation === 'rush' && history.breaches >= 2) {
+  const swiftSignal = history ? history.swiftRatio : swiftUnits / totalUnits
+  const tankSignal = history ? history.tankRatio : tankUnits / totalUnits
+  const slimeSignal = history ? Math.max(0, 1 - swiftSignal - tankSignal) : slimeUnits / totalUnits
+
+  if (history && history.breaches >= 2 && slimeSignal >= 0.55) {
     return {
       mode: 'suppress',
       name: '集群清除',
       detail: 'AI 记住了上一轮密集冲锋，范围火力正在覆盖旧路线。',
-      counter: '破解：改用分批，拉开单位间距来削弱溅射伤害。',
+      counter: '范围炮惩罚扎堆；让疾行兽先走以拉开距离。',
       mix: { pulse: 0.34, frost: 0.14, cannon: 0.52 },
       accent: '#ed8a68'
     }
   }
-
-  const swiftSignal = history ? history.swiftRatio : swiftUnits / totalUnits
-  const tankSignal = history ? history.tankRatio : tankUnits / totalUnits
 
   if (swiftSignal >= 0.42) {
     return {
       mode: 'intercept',
       name: '截流协议',
       detail: '侦测到高速集群，AI 正在增配迟滞塔并前移拦截线。',
-      counter: '破解：混入铁甲兽吸收迟滞火力，或改用标准波次。',
+      counter: '迟滞塔盯最快单位；让铁甲兽先压线。',
       mix: { pulse: 0.22, frost: 0.58, cannon: 0.2 },
       accent: '#70d9ff'
     }
@@ -483,18 +480,18 @@ export function analyzeArmy(
       mode: 'pierce',
       name: '破甲协议',
       detail: '重型信号升高，AI 将射界重叠并启用高伤穿甲炮。',
-      counter: '破解：用史莱姆消耗炮击冷却，避免铁甲兽单独出兵。',
+      counter: '穿甲炮攻击最密处；先用史莱姆骗炮。',
       mix: { pulse: 0.22, frost: 0.16, cannon: 0.62 },
       accent: '#ffac66'
     }
   }
 
-  if (!history && formation === 'rush' && queue.length >= 4 && slimeUnits / totalUnits >= 0.55) {
+  if (!history && queue.length >= 4 && slimeSignal >= 0.55) {
     return {
       mode: 'suppress',
       name: '集群清除',
       detail: '侦测到密集孢子信号，AI 正在用穿甲炮制造范围杀伤。',
-      counter: '破解：改为分批出兵，或让疾行兽先骗出炮击。',
+      counter: '范围炮惩罚扎堆；让疾行兽先走以拉开距离。',
       mix: { pulse: 0.38, frost: 0.14, cannon: 0.48 },
       accent: '#ff8d72'
     }
@@ -504,70 +501,9 @@ export function analyzeArmy(
     mode: 'balanced',
     name: '均衡戒备',
     detail: '威胁样本不足，AI 采用脉冲塔为主的通用防线。',
-    counter: '破解：观察射界后重新布线，不要把所有单位放在同一批次。',
+    counter: '脉冲塔追击最前单位；让史莱姆先吃火力。',
     mix: { pulse: 0.52, frost: 0.28, cannon: 0.2 },
     accent: '#ff7188'
-  }
-}
-
-export function formationMatchup(formation: Formation, mode: AIAnalysis['mode']): FormationMatchup {
-  if (mode === 'pierce' && formation === 'rush') {
-    return {
-      state: 'favored',
-      label: '节奏占优',
-      detail: '密集冲锋能挤压穿甲炮的长冷却。',
-      damageMultiplier: 0.86,
-      slowMultiplier: 1,
-      splashMultiplier: 1.16
-    }
-  }
-  if (mode === 'suppress' && formation === 'split') {
-    return {
-      state: 'favored',
-      label: '节奏占优',
-      detail: '分批部署将范围溅射降低 58%。',
-      damageMultiplier: 1,
-      slowMultiplier: 1,
-      splashMultiplier: 0.42
-    }
-  }
-  if (mode === 'intercept' && formation === 'steady') {
-    return {
-      state: 'favored',
-      label: '节奏占优',
-      detail: '标准节奏让迟滞效果更快衰减。',
-      damageMultiplier: 1,
-      slowMultiplier: 0.66,
-      splashMultiplier: 1
-    }
-  }
-  if (mode === 'lockdown' && formation === 'split') {
-    return {
-      state: 'exposed',
-      label: '节奏不利',
-      detail: '分批部队会被封锁区逐个击破。',
-      damageMultiplier: 1.13,
-      slowMultiplier: 1.08,
-      splashMultiplier: 1
-    }
-  }
-  if (mode === 'suppress' && formation === 'rush') {
-    return {
-      state: 'exposed',
-      label: '节奏不利',
-      detail: '密集单位将承受完整范围伤害。',
-      damageMultiplier: 1.06,
-      slowMultiplier: 1,
-      splashMultiplier: 1.28
-    }
-  }
-  return {
-    state: 'neutral',
-    label: '节奏中性',
-    detail: '当前间隔不会明显克制这套防线。',
-    damageMultiplier: 1,
-    slowMultiplier: 1,
-    splashMultiplier: 1
   }
 }
 
@@ -582,7 +518,7 @@ export function modifiersFor(mutations: MutationId[]): CombatModifiers {
     speedMultiplier: owned.has('neural_drive') ? 1.09 : 1,
     nodeMultiplier: owned.has('neural_drive') ? 1.25 : 1,
     breachCredit: owned.has('signal_leech') ? 2 : 0,
-    empDuration: 1.8 + (owned.has('emp_overload') ? 1.2 : 0)
+    jammerDuration: 1.8 + (owned.has('jammer_echo') ? 1.2 : 0)
   }
 }
 
@@ -678,13 +614,9 @@ export function generateTowerBlueprints(
   return towers
 }
 
-export function buildSpawnPlan(
-  queue: ArmyBatch[],
-  formation: Formation,
-  mutations: MutationId[] = []
-): SpawnEntry[] {
-  const unitGap: Record<Formation, number> = { rush: 0.2, steady: 0.34, split: 0.42 }
-  const batchGap: Record<Formation, number> = { rush: 0.58, steady: 1.05, split: 1.85 }
+export function buildSpawnPlan(queue: ArmyBatch[], mutations: MutationId[] = []): SpawnEntry[] {
+  const unitGap = 0.34
+  const batchGap = 1.05
   const plan: SpawnEntry[] = []
   const modifiers = modifiersFor(mutations)
   let cursor = 0
@@ -693,9 +625,9 @@ export function buildSpawnPlan(
     const definition = UNIT_DEFS[batch.kind]
     const count = definition.count + (batch.kind === 'slime' ? modifiers.slimeBonus : 0)
     for (let index = 0; index < count; index += 1) {
-      plan.push({ at: cursor + index * unitGap[formation], kind: batch.kind, batchId: batch.id })
+      plan.push({ at: cursor + index * unitGap, kind: batch.kind, batchId: batch.id })
     }
-    cursor += (count - 1) * unitGap[formation] + batchGap[formation]
+    cursor += (count - 1) * unitGap + batchGap
   }
 
   return plan

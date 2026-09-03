@@ -121,7 +121,7 @@ button:disabled {
 
 .hud-stat span {
   color: var(--dim);
-  font-size: 9px;
+  font-size: 12px;
   font-weight: 650;
 }
 
@@ -136,7 +136,7 @@ button:disabled {
 }
 
 .hud-stat strong {
-  font-size: 13px;
+  font-size: 15px;
   font-weight: 700;
 }
 
@@ -171,7 +171,7 @@ button:disabled {
 .guide small {
   margin-top: 4px;
   color: #c7c9bf;
-  font-size: 11px;
+  font-size: 14px;
   line-height: 1.5;
 }
 
@@ -225,7 +225,7 @@ button:disabled {
   width: 38px;
   height: 32px;
   border-radius: 45% 55% 58% 42% / 53% 46% 54% 47%;
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 750;
 }
 
@@ -257,13 +257,13 @@ button:disabled {
 .route-fact > span {
   width: 100%;
   color: var(--muted);
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 650;
 }
 
 .route-fact strong {
   color: var(--spore);
-  font-size: 18px;
+  font-size: 20px;
   font-weight: 720;
   letter-spacing: -0.04em;
   font-variant-numeric: tabular-nums;
@@ -272,7 +272,7 @@ button:disabled {
 
 .route-fact small {
   color: var(--muted);
-  font-size: 9px;
+  font-size: 12px;
 }
 
 .ready-value {
@@ -314,7 +314,7 @@ button:disabled {
   border-radius: 14px;
   color: var(--text);
   background: var(--surface);
-  font-size: 10px;
+  font-size: 13px;
   opacity: 0;
   pointer-events: none;
   transform: translate(-50%, 5px);
@@ -373,7 +373,7 @@ button:disabled {
   background: transparent;
   cursor: pointer;
   gap: 5px;
-  grid-template-columns: 48px 1fr auto;
+  grid-template-columns: 48px 1fr;
   text-align: left;
 }
 
@@ -399,6 +399,7 @@ button:disabled {
 }
 
 .unit-card.slime {
+  --unit-color: var(--spore);
   color: var(--spore);
 }
 
@@ -408,6 +409,7 @@ button:disabled {
 }
 
 .unit-card.swift {
+  --unit-color: var(--amber);
   color: var(--amber);
 }
 
@@ -416,6 +418,7 @@ button:disabled {
 }
 
 .unit-card.tank {
+  --unit-color: var(--shell);
   color: var(--shell);
 }
 
@@ -428,26 +431,25 @@ button:disabled {
 
 .unit-copy strong {
   color: var(--text);
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 680;
   white-space: nowrap;
 }
 
 .unit-copy small {
   color: var(--muted);
-  font-size: 9px;
+  font-size: 12px;
   white-space: nowrap;
 }
 
 .unit-copy em {
-  color: inherit;
+  color: var(--unit-color);
   font-style: normal;
 }
 
 .unit-cost {
-  align-self: start;
-  color: inherit;
-  font-size: 11px;
+  color: var(--unit-color);
+  font-size: inherit;
   font-weight: 750;
 }
 
@@ -477,7 +479,7 @@ button:disabled {
 
 .queue-empty span {
   margin-right: 3px;
-  font-size: 9px;
+  font-size: 12px;
 }
 
 .queue-empty i {
@@ -487,7 +489,7 @@ button:disabled {
   border: 1px solid #4a5143;
   border-radius: 50%;
   color: #68705f;
-  font-size: 8px;
+  font-size: 12px;
   font-style: normal;
   place-items: center;
 }
@@ -519,7 +521,7 @@ button:disabled {
   top: 2px;
   left: 5px;
   color: var(--muted);
-  font-size: 8px;
+  font-size: 12px;
 }
 
 .queue-token i {
@@ -555,7 +557,7 @@ button:disabled {
   right: -2px;
   bottom: -2px;
   color: var(--text);
-  font-size: 8px;
+  font-size: 12px;
   font-weight: 700;
 }
 
@@ -598,7 +600,7 @@ button:disabled {
 }
 
 .launch-button span {
-  font-size: 11px;
+  font-size: 14px;
   font-weight: 750;
 }
 
@@ -633,7 +635,7 @@ button:disabled {
 
 .modal-index {
   color: var(--spore);
-  font-size: 10px;
+  font-size: 13px;
   font-weight: 680;
 }
 
@@ -650,7 +652,7 @@ button:disabled {
   max-width: 430px;
   margin: 14px 0 0;
   color: var(--muted);
-  font-size: 11px;
+  font-size: 15px;
   line-height: 1.65;
 }
 
@@ -669,7 +671,7 @@ button:disabled {
 .report-stats span,
 .earned-upgrade > span {
   color: var(--dim);
-  font-size: 8px;
+  font-size: 12px;
 }
 
 .report-stats strong {
@@ -692,7 +694,7 @@ button:disabled {
 .earned-upgrade p {
   margin: 0;
   color: var(--muted);
-  font-size: 10px;
+  font-size: 14px;
 }
 
 .earned-upgrade strong {
@@ -740,16 +742,12 @@ button:disabled {
 
   .unit-card {
     width: 116px;
-    grid-template-columns: 42px 1fr auto;
+    grid-template-columns: 42px 1fr;
   }
 
   .unit-glyph {
     width: 40px;
     height: 40px;
-  }
-
-  .unit-copy small {
-    display: none;
   }
 
   .launch-button {
@@ -782,7 +780,7 @@ button:disabled {
   }
 
   .hud-stat strong {
-    font-size: 11px;
+    font-size: 14px;
   }
 
   .hud-stat svg {
@@ -804,11 +802,11 @@ button:disabled {
   }
 
   .guide strong {
-    font-size: 16px;
+    font-size: 18px;
   }
 
   .guide small {
-    font-size: 10px;
+    font-size: 13px;
   }
 
   .speed-button {
@@ -830,15 +828,15 @@ button:disabled {
   }
 
   .route-fact > span {
-    font-size: 9px;
+    font-size: 12px;
   }
 
   .route-fact strong {
-    font-size: 17px;
+    font-size: 18px;
   }
 
   .route-fact small {
-    font-size: 8px;
+    font-size: 12px;
   }
 
   .swarm-control {
@@ -872,18 +870,11 @@ button:disabled {
   }
 
   .unit-copy strong {
-    font-size: 11px;
+    font-size: 13px;
   }
 
   .unit-copy small {
-    font-size: 9px;
-  }
-
-  .unit-cost {
-    position: absolute;
-    top: 5px;
-    right: 6px;
-    font-size: 10px;
+    font-size: 12px;
   }
 
   .queue-track {
@@ -897,7 +888,7 @@ button:disabled {
   }
 
   .queue-empty span {
-    font-size: 8px;
+    font-size: 12px;
   }
 
   .queue-empty i {
@@ -974,10 +965,6 @@ button:disabled {
   .unit-glyph {
     width: 36px;
     height: 36px;
-  }
-
-  .unit-copy small {
-    display: none;
   }
 
   .queue-empty span {
