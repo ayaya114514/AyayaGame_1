@@ -4,7 +4,7 @@
   <path d="M72 376 284 240 490 402" fill="none" stroke="#aab88d" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
   <path d="M490 402 704 214 930 340" fill="none" stroke="#b06159" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
   <path d="M930 340 1128 260" fill="none" stroke="#aab88d" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
-  <g fill="#0b0b0a" stroke="#aab88d" stroke-width="4"><rect x="273" y="229" width="22" height="22"/><rect x="693" y="203" width="22" height="22"/></g>
-  <text x="72" y="94" fill="#a4a39b" font-family="system-ui,sans-serif" font-weight="500" font-size="25">双中继 · 1.28 路线预算 · 四回合</text>
+  <g fill="#0b0b0a" stroke-width="4"><rect x="273" y="229" width="22" height="22" stroke="#75ffc1"/><rect x="479" y="391" width="22" height="22" stroke="#ffe378"/><rect x="693" y="203" width="22" height="22" stroke="#7bdfff"/></g>
+  <text x="72" y="94" fill="#a4a39b" font-family="system-ui,sans-serif" font-weight="500" font-size="25">三选二中继 · 红路不超过 58% · 四回合</text>
   <text x="72" y="544" fill="#e9e7df" font-family="system-ui,sans-serif" font-weight="720" font-size="72" letter-spacing="-3">Ayaya Breach Protocol</text>
 </svg>

@@ -12,7 +12,9 @@ import {
   modifiersFor,
   mutationOffers,
   pointOnRoute,
+  routeExposure,
   routeLength,
+  routeSignature,
   routeSimilarity,
   routeTouchesNode,
   unitCost,
@@ -54,30 +56,32 @@ describe('route helpers', () => {
     expect(coreDamageFor(3, 2)).toBe(3)
   })
 
-  it('accepts only a short route that crosses every relay', () => {
+  it('accepts a short route that crosses any two of three relays', () => {
     const nodes = generateTacticalNodes(1)
     const valid = DEFAULT_ROUTE.map((point) => ({ ...point }))
     if (nodes[0]) valid[1] = { ...nodes[0].position }
-    if (nodes[1]) valid[3] = { ...nodes[1].position }
-    if (nodes[0] && nodes[1]) {
+    if (nodes[2]) valid[3] = { ...nodes[2].position }
+    if (nodes[0] && nodes[2]) {
       valid[2] = {
-        x: (nodes[0].position.x + nodes[1].position.x) / 2,
-        y: (nodes[0].position.y + nodes[1].position.y) / 2
+        x: (nodes[0].position.x + nodes[2].position.x) / 2,
+        y: (nodes[0].position.y + nodes[2].position.y) / 2
       }
     }
 
-    expect(evaluateRoutePlan(DEFAULT_ROUTE, nodes, 1.28).ready).toBe(false)
-    const status = evaluateRoutePlan(valid, nodes, 1.28)
-    expect(status.linked).toBe(2)
+    expect(evaluateRoutePlan(DEFAULT_ROUTE, nodes, 1.28, 2).ready).toBe(false)
+    const status = evaluateRoutePlan(valid, nodes, 1.28, 2)
+    expect(status.linked).toBeGreaterThanOrEqual(2)
+    expect(status.required).toBe(2)
+    expect(status.available).toBe(3)
     expect(status.length).toBeLessThanOrEqual(1.28)
     expect(status.ready).toBe(true)
   })
 
-  it('keeps the stricter route budget solvable in every campaign round', () => {
+  it('keeps two relay choices solvable in every campaign round', () => {
     for (let round = 1; round <= 4; round += 1) {
       const nodes = generateTacticalNodes(round)
       const first = nodes[0]
-      const second = nodes[1]
+      const second = nodes[2]
       expect(first).toBeDefined()
       expect(second).toBeDefined()
       if (!first || !second) continue
@@ -91,7 +95,44 @@ describe('route helpers', () => {
         { ...second.position },
         { ...DEFAULT_ROUTE.at(-1)! }
       ]
-      expect(evaluateRoutePlan(route, nodes, 1.28).ready).toBe(true)
+      expect(evaluateRoutePlan(route, nodes, 1.28, 2).ready).toBe(true)
+    }
+  })
+
+  it('measures how much of a route sits inside tower range', () => {
+    const route = [
+      { x: 0, y: 0.5 },
+      { x: 1, y: 0.5 }
+    ]
+    const towers = [{ position: { x: 0.5, y: 0.5 }, range: 0.1 }]
+    expect(routeExposure(route, [])).toBe(0)
+    expect(routeExposure(route, towers, 100)).toBeGreaterThan(0.18)
+    expect(routeExposure(route, towers, 100)).toBeLessThan(0.23)
+  })
+
+  it('keeps a low-exposure two-relay route available in every round', () => {
+    const defenseSeed = routeSignature(DEFAULT_ROUTE)
+      .split('-')
+      .reduce((sum, value) => sum * 17 + Number(value), 19)
+    for (let round = 1; round <= 4; round += 1) {
+      const nodes = generateTacticalNodes(round)
+      const towers = generateTowerBlueprints(DEFAULT_ROUTE, round, analyzeArmy([]), defenseSeed)
+      const routes = [0, 1, 2].flatMap((freeIndex) =>
+        Array.from({ length: 17 }, (_, step) => {
+          const waypoints = nodes.map((node) => ({ ...node.position }))
+          waypoints[freeIndex] = {
+            x: [0.25, 0.5, 0.75][freeIndex] ?? 0.5,
+            y: 0.1 + step * 0.05
+          }
+          return [{ ...DEFAULT_ROUTE[0]! }, ...waypoints, { ...DEFAULT_ROUTE.at(-1)! }]
+        })
+      )
+      expect(
+        routes.some(
+          (route) =>
+            evaluateRoutePlan(route, nodes, 1.28, 2).ready && routeExposure(route, towers) <= 0.58
+        )
+      ).toBe(true)
     }
   })
 })
@@ -235,10 +276,10 @@ describe('evolution system', () => {
 })
 
 describe('tactical nodes', () => {
-  it('generates two reachable and distinct battlefield signals each round', () => {
+  it('generates three reachable and distinct battlefield signals each round', () => {
     const nodes = generateTacticalNodes(2, 99)
-    expect(nodes).toHaveLength(2)
-    expect(nodes[0]?.kind).not.toBe(nodes[1]?.kind)
+    expect(nodes).toHaveLength(3)
+    expect(new Set(nodes.map((node) => node.kind)).size).toBe(3)
     for (const node of nodes) {
       expect(node.position.x).toBeGreaterThan(0.15)
       expect(node.position.x).toBeLessThan(0.85)

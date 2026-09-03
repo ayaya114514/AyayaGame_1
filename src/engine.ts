@@ -98,7 +98,8 @@ export type TacticalNodeBlueprint = {
 
 export type RoutePlanStatus = {
   linked: number
-  total: number
+  required: number
+  available: number
   length: number
   remaining: number
   ready: boolean
@@ -372,17 +373,40 @@ export function linkedNodeIds(points: Point[], nodes: TacticalNodeBlueprint[]): 
 export function evaluateRoutePlan(
   points: Point[],
   nodes: TacticalNodeBlueprint[],
-  maxLength: number
+  maxLength: number,
+  requiredNodes = nodes.length
 ): RoutePlanStatus {
   const length = routeLength(points)
   const linked = linkedNodeIds(points, nodes).length
+  const required = clamp(requiredNodes, 0, nodes.length)
   return {
     linked,
-    total: nodes.length,
+    required,
+    available: nodes.length,
     length,
     remaining: maxLength - length,
-    ready: linked === nodes.length && length <= maxLength
+    ready: linked >= required && length <= maxLength
   }
+}
+
+export function routeExposure(
+  points: Point[],
+  towers: Pick<TowerBlueprint, 'position' | 'range'>[],
+  samples = 96
+): number {
+  const sampleCount = Math.max(1, Math.floor(samples))
+  let exposed = 0
+  for (let index = 0; index <= sampleCount; index += 1) {
+    const point = pointOnRoute(points, index / sampleCount)
+    if (
+      towers.some(
+        (tower) => Math.hypot(point.x - tower.position.x, point.y - tower.position.y) <= tower.range
+      )
+    ) {
+      exposed += 1
+    }
+  }
+  return exposed / (sampleCount + 1)
 }
 
 export function routeSimilarity(points: Point[], previous: Point[] | null): number {
@@ -422,7 +446,7 @@ export function analyzeArmy(
     return {
       mode: 'lockdown',
       name: '路径封锁',
-      detail: 'AI 已锁定上一条路线，沿旧路径增设交叉火力。重复走线会让塔伤提高 30%。',
+      detail: 'AI 已锁定上一条路线，沿旧路径增设交叉火力。重复走线会让塔伤提高 80%。',
       counter: '破解：移动至少两个路标，或用静默脉冲穿越封锁区。',
       mix: { pulse: 0.5, frost: 0.26, cannon: 0.24 },
       accent: '#f07a72'
@@ -592,11 +616,11 @@ export function mutationOffers(round: number, owned: MutationId[]): MutationDefi
 export function generateTacticalNodes(round: number, seed = 31): TacticalNodeBlueprint[] {
   const random = seededRandom(seed + round * 577)
   const kinds: TacticalNodeKind[] = ['vitality', 'haste', 'jammer']
-  const xPositions = round % 2 === 0 ? [0.29, 0.72] : [0.36, 0.68]
+  const xPositions = round % 2 === 0 ? [0.28, 0.5, 0.73] : [0.27, 0.51, 0.72]
   return xPositions.map((x, index) => ({
     id: index + 1,
     kind: kinds[(round + index - 1) % kinds.length] ?? 'vitality',
-    position: { x, y: 0.2 + random() * 0.6 },
+    position: { x, y: 0.18 + random() * 0.64 },
     radius: 0.055
   }))
 }
