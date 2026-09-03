@@ -14,13 +14,14 @@ import {
   generateTacticalNodes,
   generateTowerBlueprints,
   modifiersFor,
-  mutationOffers,
   pointOnRoute,
   routeLength,
   routeExposure,
   routeSimilarity,
   routeSignature,
   routeTouchesNode,
+  selectAdaptiveMutation,
+  towerBurstAfterShot,
   unitCost,
   unitDefinition,
   type AIAnalysis,
@@ -53,6 +54,7 @@ type RuntimeUnit = {
 type RuntimeTower = TowerBlueprint & {
   cooldown: number
   recoil: number
+  burstLeft: number
 }
 
 type RuntimeNode = TacticalNodeBlueprint & {
@@ -88,11 +90,10 @@ type FloatLabel = {
 }
 
 type WaveStats = {
-  deployed: number
-  destroyed: number
   breaches: number
   coreDamage: number
   nodes: number
+  firstLoss: UnitKind | null
 }
 
 const MAX_ROUNDS = 4
@@ -114,16 +115,16 @@ app.innerHTML = `
     <main class="game-stage">
       <section class="battlefield" aria-label="战场">
         <div class="canvas-wrap">
-          <canvas id="battlefield" tabindex="0" aria-label="路线战场。拖动三个圆形路标，从三枚中继中任选两枚连接，并将红色火力路段控制在本回合上限内。"></canvas>
+          <canvas id="battlefield" tabindex="0" aria-label="路线战场。拖动三个圆形路标，从三枚中继中任选两枚连接，避开红色火力路段。防御塔的外圈亮点表示剩余连射，归零后会暂时过载。"></canvas>
           <a class="brand" href="." aria-label="Ayaya Breach Protocol 首页"><strong>Ayaya</strong></a>
           <div class="field-hud" aria-label="战局状态">
-            <div class="hud-stat round-stat"><span>回合</span><strong id="round-value">1 / 4</strong></div>
+            <div class="hud-stat round-stat"><span>回合</span><strong id="round-value">1/4</strong></div>
             <div class="hud-stat core-stat"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 2 7 6-2.7 10H7.7L5 8l7-6Z"/></svg><strong id="core-value">36</strong></div>
             <div class="hud-stat credit-stat"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 4 8v8l8 5 8-5V8l-8-5Zm0 5v8m-4-6 4 2 4-2"/></svg><strong id="credit-value">120</strong></div>
           </div>
           <div class="guide" role="status" aria-live="polite">
             <strong id="guide-title">任选两枚中继</strong>
-            <small id="guide-copy">拖动白色节点连接，红色路段保持在 58% 以下</small>
+            <small id="guide-copy">拖动白色节点连接，火力不超过 58%</small>
           </div>
           <div class="top-actions">
             <button class="icon-button" id="sound-button" type="button" aria-label="关闭音效" aria-pressed="true">
@@ -135,14 +136,14 @@ app.innerHTML = `
           </div>
           <span class="sr-only" id="phase-label">规划中</span>
           <button class="speed-button" id="speed-button" type="button" aria-label="切换战斗速度" disabled>1×</button>
-          <div class="sr-only" id="map-hint">拖动白色节点，任选两枚中继并避开红路</div>
+          <div class="sr-only" id="map-hint">拖动白色节点，任选两枚中继并避开火力</div>
           <div class="wave-progress" id="wave-progress" hidden><i></i></div>
           <div class="combat-toast" id="combat-toast" role="status" aria-live="polite"></div>
           <section class="swarm-control" aria-label="路线与出兵指挥区">
             <div class="route-dashboard" aria-label="路线评估">
-              <div class="route-fact"><span>中继</span><strong id="relay-value">0 / 2</strong></div>
-              <div class="route-fact"><span>红路</span><strong id="trace-value">--%</strong><small id="threat-limit">≤58%</small></div>
-              <div class="route-fact"><span>长度</span><strong id="route-length">1.52</strong><small>≤1.28</small></div>
+              <div class="route-fact"><span>中继</span><strong id="relay-value">0/2</strong></div>
+              <div class="route-fact"><span>火力</span><strong id="trace-value">--%</strong><small id="threat-limit">/58%</small></div>
+              <div class="route-fact"><span>长度</span><strong id="route-length">1.52</strong><small>/1.28</small></div>
             </div>
             <div class="unit-market" id="unit-market">
               <button class="unit-card slime" type="button" data-unit="slime" aria-label="加入史莱姆">
@@ -160,7 +161,7 @@ app.innerHTML = `
             </div>
             <div class="queue-track" id="queue-track" aria-label="当前出兵序列"></div>
             <div class="launch-zone">
-              <div class="readiness sr-only"><i id="ready-light"></i><strong id="ready-title">路线无效</strong><small id="ready-copy">经过两枚中继并避开红路</small></div>
+              <div class="readiness sr-only"><i id="ready-light"></i><strong id="ready-title">路线无效</strong><small id="ready-copy">经过两枚中继并避开火力</small></div>
               <button class="launch-button" id="launch-button" type="button" disabled>
                 <svg viewBox="0 0 32 32" aria-hidden="true"><path d="m7 25 18-9L7 7l4 9-4 9Z"/></svg>
                 <span>出发</span>
@@ -178,13 +179,13 @@ app.innerHTML = `
       <h2 id="summary-title">回合结束</h2>
       <p id="summary-copy">下一回合的火力会重新布置。</p>
       <div class="report-stats">
-        <div><span>部署</span><strong id="stat-deployed">0</strong></div>
+        <div><span>先损失</span><strong id="stat-first-loss">—</strong></div>
         <div><span>突破</span><strong id="stat-breaches">0</strong></div>
         <div><span>核心伤害</span><strong id="stat-damage">0</strong></div>
         <div><span>情报奖励</span><strong id="stat-reward">+0</strong></div>
       </div>
       <div class="earned-upgrade" id="earned-upgrade">
-        <span>自动进化</span>
+        <span>应激进化</span>
         <p><strong id="earned-upgrade-name">相位薄膜</strong> · <span id="earned-upgrade-copy">疾行兽抵消第一次攻击。</span></p>
       </div>
       <button class="primary-modal-button" id="continue-button" type="button">下一回合 <span>→</span></button>
@@ -267,7 +268,12 @@ let draggedWaypoint: number | null = null
 let particles: Particle[] = []
 let shots: Shot[] = []
 let labels: FloatLabel[] = []
-let waveStats: WaveStats = { deployed: 0, destroyed: 0, breaches: 0, coreDamage: 0, nodes: 0 }
+let waveStats: WaveStats = {
+  breaches: 0,
+  coreDamage: 0,
+  nodes: 0,
+  firstLoss: null
+}
 let lastTimestamp = performance.now()
 let canvasWidth = 0
 let canvasHeight = 0
@@ -322,7 +328,8 @@ function rebuildDefense(): void {
   towers = generateTowerBlueprints(defenseRoute, round, analysis, signatureSeed).map((tower) => ({
     ...tower,
     cooldown: Math.random() * 0.3,
-    recoil: 0
+    recoil: 0,
+    burstLeft: TOWER_DEFS[tower.kind].burst
   }))
 }
 
@@ -341,17 +348,17 @@ function updateUI(): void {
   const exposureLimit = boardExposureLimit(round, nodes, towers, MAX_ROUTE_LENGTH, REQUIRED_RELAYS)
   const threatLimit = Math.round(exposureLimit * 100)
 
-  ui.round.textContent = `${round} / ${MAX_ROUNDS}`
+  ui.round.textContent = `${round}/${MAX_ROUNDS}`
   ui.core.textContent = Math.ceil(core).toString()
   ui.credits.textContent = credits.toString()
   ui.routeLength.textContent = routeStatus.length.toFixed(2)
   ui.routeLength.className = routeStatus.remaining >= 0 ? 'ready-value' : 'danger-value'
-  ui.relayValue.textContent = `${Math.min(routeStatus.linked, routeStatus.required)} / ${routeStatus.required}`
+  ui.relayValue.textContent = `${Math.min(routeStatus.linked, routeStatus.required)}/${routeStatus.required}`
   ui.relayValue.className =
     routeStatus.linked >= routeStatus.required ? 'ready-value' : 'danger-value'
   ui.traceValue.textContent = `${threatPercent}%`
   ui.traceValue.className = threatRatio > exposureLimit ? 'danger-value' : 'ready-value'
-  ui.threatLimit.textContent = `≤${threatLimit}%`
+  ui.threatLimit.textContent = `/${threatLimit}%`
 
   ui.queue.innerHTML = queue.length
     ? queue
@@ -374,6 +381,10 @@ function updateUI(): void {
     const costLabel = button.querySelector('.unit-cost')
     if (countLabel) countLabel.textContent = `×${count}`
     if (costLabel) costLabel.textContent = cost.toString()
+    button.setAttribute(
+      'aria-label',
+      `加入${UNIT_DEFS[kind].name}，${count} 个单位，消耗 ${cost} 资源`
+    )
     button.disabled = !isPlanning || credits < cost || queue.length >= MAX_BATCHES
   })
 
@@ -393,15 +404,15 @@ function updateUI(): void {
       : routeStatus.remaining < 0
         ? `路线超出 ${Math.abs(routeStatus.remaining).toFixed(2)}`
         : threatRatio > exposureLimit
-          ? `红路超出 ${threatPercent - threatLimit}%`
+          ? `火力超出 ${threatPercent - threatLimit}%`
           : !armyReady
             ? `还需 ${MIN_BATCHES - queue.length} 批单位`
             : `${totalUnits} 个单位就绪`
   ui.readyCopy.textContent = canLaunch ? '可以出发' : '拖路线或调整队列'
   ui.phase.textContent = phase === 'battle' ? '突破中' : phase === 'planning' ? '规划中' : '结算中'
   if (phase === 'battle') {
-    ui.guideTitle.textContent = `${analysis.name} · 突破中`
-    ui.guideCopy.textContent = '记住最先倒下的单位，下一轮调整顺序'
+    ui.guideTitle.textContent = '骗空塔火，再让主力突破'
+    ui.guideCopy.textContent = `${analysis.name} · 塔外圈亮点是剩余连射`
   } else if (routeStatus.linked < routeStatus.required) {
     ui.guideTitle.textContent = '任选两枚中继'
     ui.guideCopy.textContent = '修复、加速、停火效果不同；拖动白色节点连接'
@@ -409,7 +420,7 @@ function updateUI(): void {
     ui.guideTitle.textContent = `再缩短 ${Math.abs(routeStatus.remaining).toFixed(2)}`
     ui.guideCopy.textContent = '保留已选中继，把折线拉直'
   } else if (threatRatio > exposureLimit) {
-    ui.guideTitle.textContent = `把红路降到 ${threatLimit}%`
+    ui.guideTitle.textContent = `把火力降到 ${threatLimit}%`
     ui.guideCopy.textContent = '移动空闲路标，绕开防御塔射程'
   } else if (routeRepeated) {
     ui.guideTitle.textContent = '旧路线 · 塔伤提高 80%'
@@ -440,17 +451,18 @@ function showToast(message: string, tone: 'neutral' | 'success' | 'danger' = 'ne
 }
 
 function waveDiagnosis(): string {
+  const firstLoss = waveStats.firstLoss ? UNIT_DEFS[waveStats.firstLoss].name : null
   if (waveStats.breaches > 0) {
     return waveStats.coreDamage >= 8
       ? '这套顺序造成了有效突破；下一轮防线会针对本轮主力。'
-      : `突破量不足。${analysis.counter}`
+      : `${firstLoss ? `${firstLoss}先倒下。` : ''}${analysis.counter}`
   }
   if (waveStats.nodes < REQUIRED_RELAYS) {
     return `队伍没能穿过第二枚中继。${analysis.counter}`
   }
   return routeRepeated
     ? '旧路线的额外火力击溃了全队。下一轮先换线。'
-    : `全军倒在核心前。${analysis.counter}`
+    : `${firstLoss ? `${firstLoss}最先倒下。` : '全军倒在核心前。'}${analysis.counter}`
 }
 
 function addBatch(kind: UnitKind): void {
@@ -484,7 +496,12 @@ function launchWave(): void {
   spawnPlan = buildSpawnPlan(queue, ownedMutations)
   spawnIndex = 0
   waveElapsed = 0
-  waveStats = { deployed: spawnPlan.length, destroyed: 0, breaches: 0, coreDamage: 0, nodes: 0 }
+  waveStats = {
+    breaches: 0,
+    coreDamage: 0,
+    nodes: 0,
+    firstLoss: null
+  }
   units = []
   particles = []
   shots = []
@@ -496,6 +513,7 @@ function launchWave(): void {
   ui.speed.textContent = '1×'
   towers.forEach((tower) => {
     tower.cooldown = Math.random() * 0.35
+    tower.burstLeft = TOWER_DEFS[tower.kind].burst
   })
   showToast(`第 ${round} 回合 · 入侵开始`, 'neutral')
   ui.announcer.textContent = `第 ${round} 回合入侵开始，共 ${spawnPlan.length} 个单位。`
@@ -565,7 +583,7 @@ function damageUnit(
   if (target.hp > 0) return
 
   target.alive = false
-  waveStats.destroyed += 1
+  waveStats.firstLoss ??= target.kind
   const position = pointOnRoute(route, target.progress)
   burst(position, definition.color, target.kind === 'tank' ? 14 : 8, 0.12)
   labels.push({ x: position.x, y: position.y, text: '已消灭', color: '#86918d', life: 0.8 })
@@ -576,7 +594,9 @@ function attackWithTower(tower: RuntimeTower, target: RuntimeUnit): void {
   const definition = TOWER_DEFS[tower.kind]
   const targetPosition = pointOnRoute(route, target.progress)
   const damage = definition.damage * (tower.level === 2 ? 1.24 : 1)
-  tower.cooldown = definition.fireRate
+  const shotCycle = towerBurstAfterShot(tower.kind, tower.burstLeft)
+  tower.burstLeft = shotCycle.burstLeft
+  tower.cooldown = shotCycle.cooldown
   tower.recoil = 0.12
   shots.push({
     from: { ...tower.position },
@@ -710,6 +730,7 @@ function updateBattle(delta: number): void {
     tower.recoil = Math.max(0, tower.recoil - delta)
     if (waveElapsed < jammedUntil) continue
     if (tower.cooldown > 0) continue
+    if (tower.burstLeft === 0) tower.burstLeft = TOWER_DEFS[tower.kind].burst
     const candidates = units.filter((unit) => {
       if (!unit.alive) return false
       const position = pointOnRoute(route, unit.progress)
@@ -786,15 +807,20 @@ function finishWave(): void {
   byId('summary-index').textContent = `第 ${round} 回合`
   byId('summary-title').textContent = waveStats.breaches ? '突破完成' : '全部被拦截'
   byId('summary-copy').textContent = waveDiagnosis()
-  byId('stat-deployed').textContent = waveStats.deployed.toString()
+  byId('stat-first-loss').textContent = waveStats.firstLoss
+    ? UNIT_DEFS[waveStats.firstLoss].name.replace('群', '')
+    : '无'
   byId('stat-breaches').textContent = waveStats.breaches.toString()
   byId('stat-damage').textContent = waveStats.coreDamage.toString()
   byId('stat-reward').textContent = `+${reward}`
-  lastEarnedMutation = mutationOffers(round, ownedMutations)[0] ?? null
+  const adaptation = selectAdaptiveMutation(queue, analysis.mode, waveStats, ownedMutations)
+  lastEarnedMutation = adaptation?.mutation ?? null
   if (lastEarnedMutation) ownedMutations.push(lastEarnedMutation.id)
   ui.earnedUpgrade.hidden = !lastEarnedMutation
   byId('earned-upgrade-name').textContent = lastEarnedMutation?.name ?? '无'
-  byId('earned-upgrade-copy').textContent = lastEarnedMutation?.detail ?? '没有新的进化。'
+  byId('earned-upgrade-copy').textContent = lastEarnedMutation
+    ? `${adaptation?.reason}：${lastEarnedMutation.detail}`
+    : '没有新的进化。'
   ui.continueButton.disabled = false
   ui.continueButton.innerHTML = '下一回合 <span>→</span>'
   ui.summary.classList.add('open')
@@ -815,7 +841,9 @@ function finishGame(victory: boolean): void {
   byId('summary-copy').textContent = victory
     ? `你在第 ${round} 回合完成突破。最终情报评分 ${formatScore(score)}。`
     : `四轮结束，核心还剩 ${core} 点。`
-  byId('stat-deployed').textContent = waveStats.deployed.toString()
+  byId('stat-first-loss').textContent = waveStats.firstLoss
+    ? UNIT_DEFS[waveStats.firstLoss].name.replace('群', '')
+    : '无'
   byId('stat-breaches').textContent = waveStats.breaches.toString()
   byId('stat-damage').textContent = waveStats.coreDamage.toString()
   byId('stat-reward').textContent = formatScore(score)
@@ -848,7 +876,12 @@ function advanceRound(): void {
   spawnPlan = []
   spawnIndex = 0
   waveElapsed = 0
-  waveStats = { deployed: 0, destroyed: 0, breaches: 0, coreDamage: 0, nodes: 0 }
+  waveStats = {
+    breaches: 0,
+    coreDamage: 0,
+    nodes: 0,
+    firstLoss: null
+  }
   jammedUntil = 0
   globalBoostUntil = 0
   selectedWaypoint = 2
@@ -884,6 +917,7 @@ function resetGame(): void {
   spawnPlan = []
   spawnIndex = 0
   waveElapsed = 0
+  waveStats = { breaches: 0, coreDamage: 0, nodes: 0, firstLoss: null }
   speed = 1
   particles = []
   shots = []
@@ -1081,6 +1115,30 @@ function drawRoute(): void {
   context.restore()
 }
 
+function drawDefenseMemory(): void {
+  if (phase !== 'planning' || !previousRoute) return
+  const first = px(pointOnRoute(previousRoute, 0))
+  context.save()
+  context.beginPath()
+  context.moveTo(first.x, first.y)
+  for (let index = 1; index <= 96; index += 1) {
+    const point = px(pointOnRoute(previousRoute, index / 96))
+    context.lineTo(point.x, point.y)
+  }
+  context.setLineDash([3, 11])
+  context.lineCap = 'round'
+  context.lineWidth = 7
+  context.strokeStyle = routeRepeated ? 'rgba(226, 123, 114, .62)' : 'rgba(226, 123, 114, .28)'
+  context.stroke()
+  context.setLineDash([])
+  const label = px(pointOnRoute(previousRoute, 0.5))
+  context.fillStyle = routeRepeated ? '#ef9188' : '#9d7770'
+  context.font = '700 12px ui-sans-serif, sans-serif'
+  context.textAlign = 'center'
+  context.fillText(routeRepeated ? '重复 ×1.8' : '上轮路线', label.x, label.y - 15)
+  context.restore()
+}
+
 function drawPortal(position: Point, destination: boolean): void {
   const center = px(position)
   context.save()
@@ -1239,6 +1297,20 @@ function drawTower(tower: RuntimeTower): void {
       context.fill()
     }
   }
+  const definition = TOWER_DEFS[tower.kind]
+  for (let index = 0; index < definition.burst; index += 1) {
+    const angle = -Math.PI / 2 + (index - (definition.burst - 1) / 2) * 0.34
+    context.beginPath()
+    context.arc(
+      Math.cos(angle) * (radius + 11),
+      Math.sin(angle) * (radius + 11),
+      2.5,
+      0,
+      Math.PI * 2
+    )
+    context.fillStyle = index < tower.burstLeft ? definition.color : '#343a31'
+    context.fill()
+  }
   context.restore()
 }
 
@@ -1364,6 +1436,7 @@ function drawEffects(): void {
 function render(): void {
   resizeCanvas()
   drawBackdrop()
+  drawDefenseMemory()
   drawRoute()
   nodes.forEach(drawTacticalNode)
   const start = route[0]

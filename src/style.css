@@ -171,7 +171,7 @@ button:disabled {
 .guide small {
   margin-top: 4px;
   color: #c7c9bf;
-  font-size: 14px;
+  font-size: 15px;
   line-height: 1.5;
 }
 
@@ -241,29 +241,28 @@ button:disabled {
   min-width: 0;
   padding: 0;
   background: transparent;
-  gap: 12px;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  grid-template-columns: 0.8fr 1fr 1.2fr;
   pointer-events: none;
 }
 
 .route-fact {
   display: flex;
   min-width: 0;
-  flex-wrap: wrap;
   align-items: baseline;
-  gap: 2px 5px;
+  gap: 4px;
+  white-space: nowrap;
 }
 
 .route-fact > span {
-  width: 100%;
   color: var(--muted);
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 650;
 }
 
 .route-fact strong {
   color: var(--spore);
-  font-size: 20px;
+  font-size: 21px;
   font-weight: 720;
   letter-spacing: -0.04em;
   font-variant-numeric: tabular-nums;
@@ -272,7 +271,7 @@ button:disabled {
 
 .route-fact small {
   color: var(--muted);
-  font-size: 12px;
+  font-size: 13px;
 }
 
 .ready-value {
@@ -343,12 +342,12 @@ button:disabled {
   bottom: 0;
   left: 0;
   display: grid;
-  min-height: 106px;
+  min-height: 96px;
   align-items: center;
-  padding: 13px 18px;
+  padding: 10px 18px;
   background: rgba(7, 9, 6, 0.94);
   gap: 16px;
-  grid-template-columns: 210px 432px minmax(150px, 1fr) 112px;
+  grid-template-columns: 280px 432px minmax(120px, 1fr) 112px;
   pointer-events: auto;
 }
 
@@ -365,7 +364,7 @@ button:disabled {
   position: relative;
   display: grid;
   width: 142px;
-  height: 72px;
+  height: 64px;
   align-items: center;
   padding: 5px 8px 5px 4px;
   border-radius: 16px;
@@ -388,8 +387,8 @@ button:disabled {
 }
 
 .unit-glyph {
-  width: 46px;
-  height: 46px;
+  width: 42px;
+  height: 42px;
   overflow: visible;
   fill: currentColor;
   stroke: #070806;
@@ -438,7 +437,7 @@ button:disabled {
 
 .unit-copy small {
   color: var(--muted);
-  font-size: 12px;
+  font-size: 13px;
   white-space: nowrap;
 }
 
@@ -479,7 +478,7 @@ button:disabled {
 
 .queue-empty span {
   margin-right: 3px;
-  font-size: 12px;
+  font-size: 13px;
 }
 
 .queue-empty i {
@@ -652,7 +651,7 @@ button:disabled {
   max-width: 430px;
   margin: 14px 0 0;
   color: var(--muted);
-  font-size: 15px;
+  font-size: 16px;
   line-height: 1.65;
 }
 
@@ -694,7 +693,7 @@ button:disabled {
 .earned-upgrade p {
   margin: 0;
   color: var(--muted);
-  font-size: 14px;
+  font-size: 15px;
 }
 
 .earned-upgrade strong {
@@ -706,20 +705,24 @@ button:disabled {
   position: absolute;
   right: 7vw;
   bottom: 8vh;
-  display: grid;
-  width: 78px;
-  height: 78px;
-  padding: 0;
-  border-radius: 63% 37% 59% 41% / 41% 61% 39% 59%;
+  display: flex;
+  min-width: 132px;
+  height: 58px;
+  align-items: center;
+  justify-content: center;
+  padding: 0 20px;
+  border-radius: 29px;
   color: #0b0d09;
   background: var(--text);
-  font-size: 0;
+  font-size: 14px;
+  font-weight: 720;
+  gap: 10px;
   cursor: pointer;
   place-items: center;
 }
 
 .primary-modal-button span {
-  font-size: 24px;
+  font-size: 20px;
 }
 
 .sr-only {
@@ -737,7 +740,7 @@ button:disabled {
 @media (max-width: 1100px) and (min-width: 701px) {
   .swarm-control {
     gap: 10px;
-    grid-template-columns: 180px 354px minmax(130px, 1fr) 104px;
+    grid-template-columns: 230px 354px minmax(90px, 1fr) 104px;
   }
 
   .unit-card {
@@ -806,7 +809,7 @@ button:disabled {
   }
 
   .guide small {
-    font-size: 13px;
+    font-size: 14px;
   }
 
   .speed-button {
@@ -820,15 +823,15 @@ button:disabled {
     gap: 8px;
     grid-column: 1 / 3;
     grid-row: 1;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: 0.8fr 1fr 1.2fr;
   }
 
   .route-fact {
-    gap: 1px 4px;
+    gap: 3px;
   }
 
   .route-fact > span {
-    font-size: 12px;
+    font-size: 13px;
   }
 
   .route-fact strong {
@@ -836,16 +839,16 @@ button:disabled {
   }
 
   .route-fact small {
-    font-size: 12px;
+    font-size: 13px;
   }
 
   .swarm-control {
     display: grid;
-    min-height: 202px;
+    min-height: 174px;
     padding: 8px 10px 9px;
     gap: 5px 8px;
     grid-template-columns: minmax(0, 1fr) 92px;
-    grid-template-rows: 54px 76px 48px;
+    grid-template-rows: 42px 68px 46px;
   }
 
   .unit-market {
@@ -858,7 +861,7 @@ button:disabled {
 
   .unit-card {
     width: 32.5%;
-    height: 76px;
+    height: 68px;
     padding: 4px 2px;
     gap: 1px;
     grid-template-columns: 42px 1fr;
@@ -874,7 +877,7 @@ button:disabled {
   }
 
   .unit-copy small {
-    font-size: 12px;
+    font-size: 13px;
   }
 
   .queue-track {
@@ -888,7 +891,7 @@ button:disabled {
   }
 
   .queue-empty span {
-    font-size: 12px;
+    font-size: 13px;
   }
 
   .queue-empty i {
@@ -942,7 +945,7 @@ button:disabled {
   }
 
   .earned-upgrade {
-    max-width: calc(100% - 80px);
+    max-width: calc(100% - 150px);
     margin-top: 8vh;
     align-items: flex-start;
     flex-direction: column;
@@ -952,8 +955,8 @@ button:disabled {
   .primary-modal-button {
     right: 22px;
     bottom: 28px;
-    width: 68px;
-    height: 68px;
+    min-width: 124px;
+    height: 54px;
   }
 }
 

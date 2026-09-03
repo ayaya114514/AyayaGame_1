@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   DEFAULT_ROUTE,
+  TOWER_DEFS,
   analyzeArmy,
   boardExposureLimit,
   buildSpawnPlan,
@@ -11,13 +12,14 @@ import {
   generateTacticalNodes,
   linkedNodeIds,
   modifiersFor,
-  mutationOffers,
   pointOnRoute,
   routeExposure,
   routeLength,
   routeSignature,
   routeSimilarity,
   routeTouchesNode,
+  selectAdaptiveMutation,
+  towerBurstAfterShot,
   unitCost,
   unitDefinition,
   type ArmyBatch
@@ -314,11 +316,58 @@ describe('evolution system', () => {
     expect(modifiers.jammerDuration).toBe(3)
   })
 
-  it('offers three unique mutations that have not been acquired', () => {
-    const offers = mutationOffers(3, ['slime_bloom', 'swift_phase'])
-    expect(offers).toHaveLength(3)
-    expect(new Set(offers.map((offer) => offer.id)).size).toBe(3)
-    expect(offers.map((offer) => offer.id)).not.toContain('slime_bloom')
+  it('repairs the weakness exposed by a failed wave', () => {
+    const adaptation = selectAdaptiveMutation(
+      [{ id: 1, kind: 'swift' }],
+      'intercept',
+      { breaches: 0, nodes: 2 },
+      []
+    )
+    expect(adaptation?.mutation.id).toBe('tank_plating')
+    expect(adaptation?.reason).toContain('本轮防线')
+  })
+
+  it('amplifies a strong breakthrough without repeating owned mutations', () => {
+    const adaptation = selectAdaptiveMutation(
+      [{ id: 1, kind: 'tank' }],
+      'pierce',
+      { breaches: 4, nodes: 2 },
+      ['signal_leech']
+    )
+    expect(adaptation?.mutation.id).not.toBe('signal_leech')
+    expect(adaptation?.mutation.id).toBe('tank_plating')
+  })
+
+  it('stops adapting after every mutation has been acquired', () => {
+    const adaptation = selectAdaptiveMutation(
+      [{ id: 1, kind: 'slime' }],
+      'balanced',
+      { breaches: 0, nodes: 0 },
+      [
+        'slime_bloom',
+        'swift_phase',
+        'tank_plating',
+        'brood_discount',
+        'neural_drive',
+        'signal_leech',
+        'jammer_echo'
+      ]
+    )
+    expect(adaptation).toBeNull()
+  })
+})
+
+describe('tower rhythm', () => {
+  it('uses a short fire cadence before entering a visible overheat window', () => {
+    const definition = TOWER_DEFS.pulse
+    let state = { burstLeft: definition.burst, cooldown: 0 }
+    for (let shot = 0; shot < definition.burst; shot += 1) {
+      state = towerBurstAfterShot('pulse', state.burstLeft)
+      expect(state.cooldown).toBe(
+        shot === definition.burst - 1 ? definition.overheat : definition.fireRate
+      )
+    }
+    expect(state.burstLeft).toBe(0)
   })
 })
 
