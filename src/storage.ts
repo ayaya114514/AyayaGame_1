@@ -3,10 +3,18 @@ export type Progress = {
   selected: number
   best: Record<string, number>
   theme: 'light' | 'dark'
+  /** Show safe / dangerous move markers beyond the opening chapter. */
+  assist: boolean
   attempt: Action[]
 }
 export const STORAGE_KEY = 'ayaya-breach-v4'
-const fresh = (): Progress => ({ selected: 0, best: {}, theme: 'light', attempt: [] })
+const fresh = (): Progress => ({
+  selected: 0,
+  best: {},
+  theme: 'dark',
+  assist: false,
+  attempt: []
+})
 
 export function parseProgress(raw: string | null, levelIds: string[]): Progress {
   const result = fresh()
@@ -20,7 +28,8 @@ export function parseProgress(raw: string | null, levelIds: string[]): Progress 
       Number(value.selected) >= 0 &&
       Number(value.selected) < levelIds.length
     if (validSelection) result.selected = Number(value.selected)
-    if (value.theme === 'dark') result.theme = 'dark'
+    if (value.theme === 'light') result.theme = 'light'
+    if (value.assist === true) result.assist = true
     if (value.best && typeof value.best === 'object') {
       for (const [id, score] of Object.entries(value.best)) {
         if (levelIds.includes(id) && Number.isInteger(score) && score > 0 && score <= 10000)

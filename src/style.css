@@ -1,31 +1,17 @@
 :root {
-  color-scheme: light;
+  color-scheme: dark;
   font-family:
     -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
   font-synthesis: none;
-  --paper: #f3f4ef;
-  --ink: #2a342a;
-  --muted: #626d5c;
-  --floor: #e2e7dc;
-  --floor-alt: #d4ddca;
-  --wall: #707d62;
-  --red: #a34234;
-  --green: #37623c;
-  --focus: #445d86;
-  --player: #29463b;
-  --face: #f0efda;
-  --crate-edge: #735e40;
-  --crate-fill: #bba57b;
-  --door: #a8b498;
-}
-:root[data-theme='dark'] {
-  color-scheme: dark;
   --paper: #1c211d;
   --ink: #e4e8dd;
   --muted: #a4ae9e;
   --floor: #303a30;
   --floor-alt: #354232;
-  --wall: #82916f;
+  /* Walls sit below the floor's brightness with a lit top edge, so they read as blocks. */
+  --wall: #262d27;
+  --wall-lip: #56634f;
+  --wall-shadow: #121613;
   --red: #ee9b81;
   --green: #a2c488;
   --focus: #a7bddf;
@@ -35,6 +21,25 @@
   --crate-fill: #746341;
   --door: #737f63;
 }
+:root[data-theme='light'] {
+  color-scheme: light;
+  --paper: #f3f4ef;
+  --ink: #2a342a;
+  --muted: #626d5c;
+  --floor: #e2e7dc;
+  --floor-alt: #d4ddca;
+  --wall: #6a775c;
+  --wall-lip: #8d9b7c;
+  --wall-shadow: #4f5a44;
+  --red: #a34234;
+  --green: #37623c;
+  --focus: #445d86;
+  --player: #29463b;
+  --face: #f0efda;
+  --crate-edge: #735e40;
+  --crate-fill: #bba57b;
+  --door: #a8b498;
+}
 * {
   box-sizing: border-box;
 }
@@ -43,7 +48,7 @@ body {
   min-width: 320px;
   color: var(--ink);
   background: var(--paper);
-  font-size: 14px;
+  font-size: 15px;
 }
 #app {
   min-height: 100svh;
@@ -77,19 +82,28 @@ p {
   margin: 0;
 }
 .shell {
-  width: min(420px, calc(100% - 24px));
+  /* Board fills a phone's width (16px gutters) and as much desktop height as the controls allow. */
+  width: min(calc(100% - 32px), 600px, max(280px, calc(100svh - 190px)));
   margin: 0 auto;
 }
+.top-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
 .game-title {
-  font-size: 15px;
+  font-size: 17px;
   font-weight: 600;
   line-height: 1.5;
-  margin-bottom: 4px;
 }
 .step-count {
-  min-width: 32px;
   font-variant-numeric: tabular-nums;
   color: var(--muted);
+}
+.step-count #turn-count {
+  color: var(--ink);
 }
 #levels-button {
   color: var(--ink);
@@ -120,9 +134,13 @@ p {
 }
 .cell.wall {
   background: var(--wall);
+  box-shadow:
+    inset 0 4px 0 var(--wall-lip),
+    inset 0 -4px 0 var(--wall-shadow);
 }
 .cell.outer-wall {
   background: none;
+  box-shadow: none;
 }
 .cell:focus-visible {
   outline-offset: -3px;
@@ -143,6 +161,7 @@ p {
 .crate-mark,
 .turret-mark,
 .relay-mark,
+.plate-mark,
 .exit-mark {
   display: block;
   width: 68%;
@@ -188,10 +207,11 @@ p {
 }
 .turret-mark small {
   position: absolute;
-  right: -10%;
+  right: -14%;
   top: -5%;
   font: 600 12px/1 sans-serif;
   color: var(--ink);
+  white-space: nowrap;
 }
 .turret-beats {
   position: absolute;
@@ -210,6 +230,9 @@ p {
   background: var(--red);
   border-color: var(--red);
 }
+.turret-beats.idle {
+  opacity: 0.45;
+}
 .relay-mark {
   color: var(--muted);
   width: 62%;
@@ -217,6 +240,14 @@ p {
   transform: translateY(-8%);
 }
 .relay-mark.off {
+  color: var(--green);
+}
+.plate-mark {
+  width: 70%;
+  height: 70%;
+  transform: translateY(-8%);
+}
+.plate-mark.pressed {
   color: var(--green);
 }
 .exit-mark {
@@ -233,13 +264,19 @@ p {
   left: 0;
   width: 100%;
   text-align: center;
-  font-size: 11px;
-  font-weight: 500;
+  font-size: 12px;
+  font-weight: 600;
   color: var(--ink);
   z-index: 3;
   pointer-events: none;
+  /* Keep letters legible where a firing line crosses the tile. */
+  text-shadow:
+    0 0 2px var(--paper),
+    0 0 3px var(--paper),
+    0 0 4px var(--paper);
 }
 .is-player .relay-mark,
+.is-player .plate-mark,
 .is-player .exit-mark {
   opacity: 0.25;
 }
@@ -283,7 +320,13 @@ p {
   gap: 4px;
   width: 100%;
   margin: 8px auto 0;
-  font-size: 13px;
+  font-size: 15px;
+}
+.play-toolbar > :first-child {
+  text-align: left;
+}
+.play-toolbar > :last-child {
+  text-align: right;
 }
 .play-toolbar button {
   min-width: 44px;
@@ -320,7 +363,7 @@ p {
   margin-top: 6px;
   text-align: left;
   color: var(--muted);
-  font-size: 12px;
+  font-size: 13px;
   line-height: 1.7;
 }
 .feedback:empty {
@@ -338,7 +381,7 @@ p {
   justify-content: flex-start;
   gap: 8px;
   margin-top: 6px;
-  font-size: 12px;
+  font-size: 13px;
   line-height: 1.7;
 }
 .result h2 {
@@ -397,8 +440,9 @@ p {
 }
 .menu-actions {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 28px;
+  gap: 0 24px;
   margin-top: 4px;
 }
 .menu-actions button {
@@ -431,11 +475,20 @@ p {
 .save-note {
   margin-top: 24px;
 }
+.share-note {
+  word-break: break-all;
+}
+.chapter-title {
+  margin: 16px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 400;
+}
 .level-list {
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));
-  gap: 12px 8px;
-  margin-top: 12px;
+  gap: 4px 8px;
+  margin-top: 4px;
 }
 .level-choice {
   display: flex;
@@ -443,8 +496,11 @@ p {
   align-items: center;
   justify-content: center;
   width: 100%;
-  gap: 7px;
-  min-height: 76px;
+  gap: 5px;
+  min-height: 64px;
+}
+.level-choice:disabled .level-index {
+  color: var(--muted);
 }
 .level-choice.selected .level-index {
   text-decoration: underline;
@@ -481,9 +537,6 @@ p {
   #app {
     padding-top: max(24px, env(safe-area-inset-top));
   }
-  .tile-caption {
-    font-size: 11px;
-  }
   .turret-mark small {
     font-size: 11px;
   }
@@ -501,8 +554,8 @@ p {
   .shell {
     width: max(260px, min(340px, calc(100svh - 124px)));
   }
-  .game-title {
-    display: none;
+  .top-row {
+    margin-bottom: 4px;
   }
   .status-line {
     min-height: 36px;

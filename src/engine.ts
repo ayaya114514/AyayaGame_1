@@ -7,7 +7,12 @@ export type Turret = {
   direction: Direction
   /** Repeats after each action. 1 means firing; 0 means resting. */
   pattern: string
+  /** Switch a / b that permanently silences this turret. */
   relay?: number
+  /** Switch a / b that starts this turret; it stays silent until then. */
+  arm?: number
+  /** Plate x / y that silences this turret only while a crate or the player stands on it. */
+  plate?: number
 }
 export type Level = {
   id: string
@@ -15,6 +20,8 @@ export type Level = {
   chapter: string
   description: string
   hint: string
+  /** Opening puzzles always show safe / dangerous move markers. */
+  tutorial?: boolean
   map: string[]
   turrets: Turret[]
   par: number
@@ -46,6 +53,8 @@ export const positionKey = ({ x, y }: Position): string => `${x},${y}`
 export const tileAt = (level: Level, { x, y }: Position): string => level.map[y]?.[x] ?? '#'
 export const relayIndex = (tile: string): number =>
   /^[ab]$/.test(tile) ? tile.charCodeAt(0) - 97 : -1
+export const plateIndex = (tile: string): number =>
+  /^[xy]$/.test(tile) ? tile.charCodeAt(0) - 120 : -1
 
 export function initialState(level: Level): GameState {
   let player: Position | undefined
@@ -67,15 +76,32 @@ export function requiredRelays(level: Level): number {
   }, 0)
 }
 
-export function isTurretDisabled(turret: Turret, collected: number): boolean {
-  return turret.relay !== undefined && (collected & (1 << turret.relay)) !== 0
+/** Plates count as pressed while the player or any crate occupies them. */
+export function isPlatePressed(
+  level: Level,
+  state: Pick<GameState, 'player' | 'crates'>,
+  plate: number
+): boolean {
+  return [state.player, ...state.crates].some(
+    (position) => plateIndex(tileAt(level, position)) === plate
+  )
 }
 
-export function firesOn(turret: Turret, turn: number, collected: number): boolean {
-  return (
-    !isTurretDisabled(turret, collected) &&
-    turret.pattern[(turn - 1) % turret.pattern.length] === '1'
-  )
+/** Whether switches and plates currently let this turret fire at all. */
+export function isTurretActive(
+  level: Level,
+  turret: Turret,
+  state: Pick<GameState, 'player' | 'crates' | 'collected'>
+): boolean {
+  if (turret.relay !== undefined && state.collected & (1 << turret.relay)) return false
+  if (turret.arm !== undefined && !(state.collected & (1 << turret.arm))) return false
+  if (turret.plate !== undefined && isPlatePressed(level, state, turret.plate)) return false
+  return true
+}
+
+/** The turret's own rhythm, independent of switches and plates. */
+export function firesOn(turret: Turret, turn: number): boolean {
+  return turret.pattern[(turn - 1) % turret.pattern.length] === '1'
 }
 
 function isSolid(level: Level, position: Position): boolean {
@@ -84,10 +110,10 @@ function isSolid(level: Level, position: Position): boolean {
   )
 }
 
-/** Use the post-move crate positions and relay mask: push/collect happens before firing. */
+/** Use the post-move crates, plates and relay mask: push/collect happens before firing. */
 export function beamsAt(level: Level, state: GameState, turn = state.turn + 1): Beam[] {
   return level.turrets.flatMap((turret) => {
-    if (!firesOn(turret, turn, state.collected)) return []
+    if (!firesOn(turret, turn) || !isTurretActive(level, turret, state)) return []
     const cells: Position[] = []
     const delta = DELTAS[turret.direction]
     let position = { x: turret.position.x + delta.x, y: turret.position.y + delta.y }
@@ -160,20 +186,25 @@ export function validateLevel(level: Level): string[] {
     errors.push('Invalid dimensions')
   if ([...flat].filter((tile) => tile === 'S').length !== 1) errors.push('Expected one start')
   if ([...flat].filter((tile) => tile === 'E').length !== 1) errors.push('Expected one exit')
-  if (/[^.#SECab]/.test(flat)) errors.push('Unknown tile')
-  for (const letter of ['a', 'b'])
-    if ([...flat].filter((tile) => tile === letter).length > 1) errors.push('Duplicate relay')
+  if (/[^.#SECabxy]/.test(flat)) errors.push('Unknown tile')
+  for (const letter of ['a', 'b', 'x', 'y'])
+    if ([...flat].filter((tile) => tile === letter).length > 1) errors.push('Duplicate switch')
   if (!Number.isInteger(level.par) || level.par < 1) errors.push('Invalid par')
   const ids = new Set<string>()
   const positions = new Set<string>()
   for (const turret of level.turrets) {
-    if (!/^[01]{1,4}$/.test(turret.pattern) || !turret.pattern.includes('1'))
+    if (!/^[01]{1,6}$/.test(turret.pattern) || !turret.pattern.includes('1'))
       errors.push('Invalid firing pattern')
     if (tileAt(level, turret.position) !== '.') errors.push('Turret must occupy an empty tile')
     if (ids.has(turret.id) || positions.has(positionKey(turret.position)))
       errors.push('Duplicate turret')
-    if (turret.relay !== undefined && !(requiredRelays(level) & (1 << turret.relay)))
-      errors.push('Missing linked relay')
+    for (const relay of [turret.relay, turret.arm])
+      if (relay !== undefined && !(requiredRelays(level) & (1 << relay)))
+        errors.push('Missing linked relay')
+    if (turret.plate !== undefined && !flat.includes('xy'[turret.plate] ?? '?'))
+      errors.push('Missing linked plate')
+    if (turret.relay !== undefined && turret.arm !== undefined)
+      errors.push('Turret cannot be both stopped and started by switches')
     ids.add(turret.id)
     positions.add(positionKey(turret.position))
   }

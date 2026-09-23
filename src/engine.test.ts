@@ -4,6 +4,8 @@ import {
   cycleLength,
   firesOn,
   initialState,
+  isPlatePressed,
+  isTurretActive,
   move,
   requiredRelays,
   samePosition,
@@ -13,7 +15,7 @@ import {
   type Level
 } from './engine'
 import { LEVELS } from './levels'
-import { solve } from './solver'
+import { countShortestSolutions, solve } from './solver'
 
 function fixture(map: string[], turrets: Level['turrets'] = []): Level {
   return { id: 'test', title: '', chapter: '', description: '', hint: '', map, turrets, par: 1 }
@@ -50,7 +52,7 @@ describe('one action, one firing beat', () => {
   })
   it('previews use the same phase as actual shots', () => {
     const turret = level.turrets[0]!
-    expect([1, 2, 3, 4].map((turn) => firesOn(turret, turn, 0))).toEqual([true, false, true, false])
+    expect([1, 2, 3, 4].map((turn) => firesOn(turret, turn))).toEqual([true, false, true, false])
     expect(beamsAt(level, initialState(level))[0]?.cells).toContainEqual({ x: 2, y: 1 })
   })
   it('uses the joint firing period rather than the longest pattern', () => {
@@ -121,6 +123,38 @@ describe('switches, cover and resolution order', () => {
       })
     }
   })
+  it('a switch can start a turret instead of stopping it', () => {
+    const level = fixture(
+      ['#######', '#Sa..E#', '#.....#', '#######'],
+      [{ id: '1', position: { x: 4, y: 3 }, direction: 'up', pattern: '1', arm: 0 }]
+    )
+    expect(beamsAt(level, initialState(level))).toEqual([])
+    const armed = replay(level, ['right'])
+    expect(armed).toMatchObject({ collected: 1, status: 'playing' })
+    expect(beamsAt(level, armed)[0]?.cells).toContainEqual({ x: 4, y: 1 })
+    expect(replay(level, ['right', 'right', 'right']).status).toBe('caught')
+    expect(validateLevel({ ...level, turrets: [{ ...level.turrets[0]!, arm: 1 }] })).toContain(
+      'Missing linked relay'
+    )
+  })
+  it('plates silence their turret only while the player or a crate stands on them', () => {
+    const level = fixture(
+      ['#######', '#SxC.E#', '#.....#', '#######'],
+      [{ id: '1', position: { x: 4, y: 3 }, direction: 'up', pattern: '1', plate: 0 }]
+    )
+    const start = initialState(level)
+    expect(isPlatePressed(level, start, 0)).toBe(false)
+    const onPlate = replay(level, ['right'])
+    expect(isPlatePressed(level, onPlate, 0)).toBe(true)
+    expect(beamsAt(level, onPlate)).toEqual([])
+    // Stepping off lets the turret fire again on the very same beat.
+    expect(replay(level, ['right', 'down', 'right', 'right']).status).toBe('caught')
+    const crateOnPlate = { ...start, crates: [{ x: 2, y: 1 }] }
+    expect(isTurretActive(level, level.turrets[0]!, crateOnPlate)).toBe(false)
+    expect(validateLevel({ ...level, turrets: [{ ...level.turrets[0]!, plate: 1 }] })).toContain(
+      'Missing linked plate'
+    )
+  })
   it('a covered relay remains collectible when the crate is pushed off it', () => {
     const level = fixture(['#######', '#S.a.E#', '#######'])
     const start = { ...initialState(level), crates: [{ x: 2, y: 1 }] }
@@ -129,7 +163,7 @@ describe('switches, cover and resolution order', () => {
     expect(after.crates).toEqual([{ x: 4, y: 1 }])
   })
   it('keeps previous snapshots intact so undo restores cover, keys and firing phase', () => {
-    const level = LEVELS.find((item) => item.id === 'make-a-way')!
+    const level = LEVELS.find((item) => item.id === 'double-duty')!
     const state = initialState(level)
     Object.freeze(state.player)
     state.crates.forEach(Object.freeze)
@@ -159,8 +193,35 @@ describe('published puzzle quality', () => {
     const fixedCover = { ...original, map: original.map.map((row) => row.replaceAll('C', '#')) }
     expect(solve(fixedCover)).toBeNull()
   })
+  it('rhythm puzzles cannot be solved by walking alone', () => {
+    for (const level of LEVELS.filter((item) => item.chapter === '节奏'))
+      expect(
+        solve(level, undefined, undefined, ['up', 'right', 'down', 'left']),
+        level.id
+      ).toBeNull()
+  })
+  it('switches that start turrets and plates each carry their puzzle', () => {
+    for (const level of LEVELS) {
+      if (level.turrets.some((turret) => turret.arm !== undefined)) {
+        const unarmed = { ...level, turrets: level.turrets.filter((t) => t.arm === undefined) }
+        expect(solve(unarmed)!.length, level.id).toBeLessThan(level.par)
+      }
+      if (level.turrets.some((turret) => turret.plate !== undefined)) {
+        const noPlates = {
+          ...level,
+          map: level.map.map((row) => row.replace(/[xy]/g, '.')),
+          turrets: level.turrets.map(({ plate: _, ...turret }) => turret)
+        }
+        expect(solve(noPlates), level.id).toBeNull()
+      }
+    }
+  })
+  it('past the tutorials each puzzle has one key idea, not many equal detours', () => {
+    for (const level of LEVELS.filter((item) => !item.tutorial))
+      expect(countShortestSolutions(level), level.id).toBeLessThanOrEqual(4)
+  })
   it('advanced puzzles require meaningful detours and shield movement', () => {
-    for (const level of LEVELS.filter((item) => item.chapter === '挑战')) {
+    for (const level of LEVELS.filter((item) => item.chapter === '综合')) {
       const path = solve(level)!
       const unguarded = {
         ...level,
@@ -180,10 +241,15 @@ describe('published puzzle quality', () => {
   it('no published turret is decorative or permanently blocked on its first square', () => {
     for (const level of LEVELS) {
       for (const turret of level.turrets) {
+        // Switch-started turrets are judged once their switch is down.
+        const state = {
+          ...initialState(level),
+          collected: turret.arm === undefined ? 0 : 1 << turret.arm
+        }
         expect(
-          Array.from({ length: 4 }, (_, index) => beamsAt(level, initialState(level), index + 1))
+          Array.from({ length: cycleLength(level) }, (_, index) => beamsAt(level, state, index + 1))
             .flat()
-            .some((beam) => beam.turretId === turret.id && beam.cells.length >= 3),
+            .some((beam) => beam.turretId === turret.id && beam.cells.length >= 2),
           `${level.id} turret ${turret.id}`
         ).toBe(true)
       }

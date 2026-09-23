@@ -1,34 +1,36 @@
 import type { Level } from './engine'
 
-// Fixed puzzles. Every published par is verified by exhaustive breadth-first search.
+// Fixed puzzles, one new idea per chapter. Every published par is verified by exhaustive
+// breadth-first search; see the "published puzzle quality" tests for the other guarantees.
 export const LEVELS: Level[] = [
   {
-    id: 'first-beat',
-    title: '交替射击',
-    chapter: '基础',
-    description: '触发 A 开关，再到出口。',
-    hint: '炮台射击一步、停火一步。等停火时通过红线所在列。',
-    map: ['#######', '#....E#', '#...a.#', '#.....#', '#.....#', '#S....#', '###.###'],
+    id: 'first-wait',
+    title: '错开一拍',
+    chapter: '节奏',
+    description: '红线处下一步会被射击。点“等待”错开它，再到出口。',
+    hint: '炮台射一步、停一步。走到中间列旁边时，如果下一步会射击，就原地等一步再穿过去。',
+    tutorial: true,
+    map: ['###.###', '#.#.#E#', '#.#.#.#', '#S#.#.#', '#.....#', '#.#.#.#', '#######'],
     turrets: [
       {
         id: '1',
         position: {
           x: 3,
-          y: 6
+          y: 0
         },
-        direction: 'up',
-        pattern: '10',
-        relay: 0
+        direction: 'down',
+        pattern: '10'
       }
     ],
-    par: 8
+    par: 9
   },
   {
     id: 'the-gap',
     title: '连续通行',
-    chapter: '基础',
-    description: '炮台每 4 步开火一次。通过中间的 3 格通道。',
+    chapter: '节奏',
+    description: '炮台每 4 步开火一次。踩下 A，再到出口。',
     hint: '在通道外等待，利用连续 3 步停火通过通道。',
+    tutorial: true,
     map: ['#######', '####.E#', '####a##', '.....##', '##.####', '#S.####', '#######'],
     turrets: [
       {
@@ -45,11 +47,78 @@ export const LEVELS: Level[] = [
     par: 11
   },
   {
+    id: 'two-rhythms',
+    title: '两种节奏',
+    chapter: '节奏',
+    description: '两门炮都打中间这一列，但节奏不同。',
+    hint: '一门隔步射击，一门每 3 步停一次，所以每 6 步才同时停火。两次穿过中间列之间正好要走 6 步。',
+    map: ['###.###', '##S...#', '#.#.#.#', '#.....#', '#.#..##', '#E....#', '###.###'],
+    turrets: [
+      {
+        id: '1',
+        position: {
+          x: 3,
+          y: 6
+        },
+        direction: 'up',
+        pattern: '10'
+      },
+      {
+        id: '2',
+        position: {
+          x: 3,
+          y: 0
+        },
+        direction: 'down',
+        pattern: '110'
+      }
+    ],
+    par: 16
+  },
+  {
+    id: 'three-guns',
+    title: '三门炮',
+    chapter: '节奏',
+    description: '三门炮，三种节奏。',
+    hint: '上方两列的炮一个每 3 步停一次、一个隔步射击。先在起点附近等到能连着穿过两列的那一拍，再绕到下方。',
+    map: ['###..##', '##...S#', '#....##', '#.#.#E#', '#......', '#.....#', '#######'],
+    turrets: [
+      {
+        id: '1',
+        position: {
+          x: 4,
+          y: 0
+        },
+        direction: 'down',
+        pattern: '110'
+      },
+      {
+        id: '2',
+        position: {
+          x: 6,
+          y: 4
+        },
+        direction: 'left',
+        pattern: '10'
+      },
+      {
+        id: '3',
+        position: {
+          x: 3,
+          y: 0
+        },
+        direction: 'down',
+        pattern: '01'
+      }
+    ],
+    par: 19
+  },
+  {
     id: 'two-keys',
     title: '两个开关',
-    chapter: '基础',
-    description: '触发 A、B 开关，关闭对应炮台后到达出口。',
-    hint: '比较先关闭 A 或 B 后的可通行路线，再决定顺序。',
+    chapter: '开关',
+    description: '踩下 A、B，关掉同字母的炮台，再到出口。',
+    hint: '两种顺序都能过，先踩 B 更短。比较先关闭 A 或 B 后的可通行路线。',
     map: ['##.####', '#a...E#', '#....##', '##b...#', '##.....', '#S....#', '#######'],
     turrets: [
       {
@@ -76,10 +145,91 @@ export const LEVELS: Level[] = [
     par: 15
   },
   {
+    id: 'handover',
+    title: '交接',
+    chapter: '开关',
+    description: '踩下 A：A 炮台停火，+A 炮台开始射击。',
+    hint: '踩 A 之前下方横线危险，踩 A 之后换成上方横线。先想好踩 A 之后从哪条路回到出口。',
+    map: ['#######', '#.E##.#', '.....a#', '#.#...#', '.....##', '#...S##', '####.##'],
+    turrets: [
+      {
+        id: '1',
+        position: {
+          x: 0,
+          y: 4
+        },
+        direction: 'right',
+        pattern: '01',
+        relay: 0
+      },
+      {
+        id: '2',
+        position: {
+          x: 0,
+          y: 2
+        },
+        direction: 'right',
+        pattern: '01',
+        arm: 0
+      },
+      {
+        id: '3',
+        position: {
+          x: 4,
+          y: 6
+        },
+        direction: 'up',
+        pattern: '110'
+      }
+    ],
+    par: 17
+  },
+  {
+    id: 'switch-order',
+    title: '开关顺序',
+    chapter: '开关',
+    description: 'B 同时关掉一门炮、启动另外两门。',
+    hint: '两种顺序都能过，先踩 B 再绕回去踩 A 最短。踩 B 后左侧横炮每 3 步射一次，穿过横排前数好节拍。',
+    map: ['#######', '###...#', '#.S.#.#', '#a##..#', '....b..', '##E#...', '#######'],
+    turrets: [
+      {
+        id: '1',
+        position: {
+          x: 6,
+          y: 4
+        },
+        direction: 'left',
+        pattern: '100',
+        relay: 1
+      },
+      {
+        id: '2',
+        position: {
+          x: 0,
+          y: 4
+        },
+        direction: 'right',
+        pattern: '001',
+        arm: 1
+      },
+      {
+        id: '3',
+        position: {
+          x: 6,
+          y: 5
+        },
+        direction: 'left',
+        pattern: '10',
+        arm: 1
+      }
+    ],
+    par: 21
+  },
+  {
     id: 'moving-cover',
     title: '推动掩体',
-    chapter: '进阶',
-    description: '把方块推到炮线上，挡住射击。',
+    chapter: '方块',
+    description: '箱子能推，也能挡炮。',
     hint: '方块挡住射击后，从背面通过。继续向前推会重新暴露炮线。',
     map: ['#######', '#...aE#', '#.....#', '......#', '#..C..#', '#S....#', '#######'],
     turrets: [
@@ -97,188 +247,150 @@ export const LEVELS: Level[] = [
     par: 8
   },
   {
-    id: 'make-a-way',
-    title: '移开方块',
-    chapter: '进阶',
-    description: '推开挡路的方块，触发 A 和 B。',
-    hint: '把方块推过 B 开关，再等竖向炮台停火。',
-    map: ['##.####', '##...E#', '#.a..##', '......#', '##.....', '#SC.b.#', '####.##'],
+    id: 'pressure',
+    title: '压板',
+    chapter: '方块',
+    description: '箱子或人压住 X，X 炮台就停火。',
+    hint: '这门炮一直开火，只能靠压板关掉。把箱子推到 X 上，再从下方绕到出口。',
+    map: ['#######', '##..S.#', '#E#.C.#', '...x..#', '#.#.#.#', '#.....#', '#######'],
     turrets: [
       {
         id: '1',
         position: {
-          x: 2,
-          y: 0
+          x: 0,
+          y: 3
         },
-        direction: 'down',
-        pattern: '010',
-        relay: 0
+        direction: 'right',
+        pattern: '1',
+        plate: 0
+      }
+    ],
+    par: 14
+  },
+  {
+    id: 'double-duty',
+    title: '一箱两用',
+    chapter: '方块',
+    description: '一个箱子，两个用处。',
+    hint: '出口要等 A 踩下后才开。把下面的箱子推上 X：它既让横排炮停火，也挡住下方竖炮，然后再去踩 A。',
+    map: ['####.##', '#....##', '##C..E#', '#a...S.', '#.#.C.#', '##.x#.#', '###.###'],
+    turrets: [
+      {
+        id: '1',
+        position: {
+          x: 6,
+          y: 3
+        },
+        direction: 'left',
+        pattern: '01',
+        plate: 0
       },
       {
         id: '2',
         position: {
-          x: 6,
-          y: 4
+          x: 3,
+          y: 6
         },
-        direction: 'left',
+        direction: 'up',
         pattern: '10',
-        relay: 1
+        relay: 0
       },
       {
         id: '3',
         position: {
           x: 4,
-          y: 6
-        },
-        direction: 'up',
-        pattern: '010'
-      },
-      {
-        id: '4',
-        position: {
-          x: 0,
-          y: 3
-        },
-        direction: 'right',
-        pattern: '001'
-      }
-    ],
-    par: 13
-  },
-  {
-    id: 'crossfire',
-    title: '双向射击',
-    chapter: '进阶',
-    description: '两侧炮台朝同一行射击，需要分别处理。',
-    hint: '先横推方块，挡住一侧炮台。通过前再检查另一侧的射击时间。',
-    map: ['###.###', '#.#b.E#', '..a....', '#.C...#', '#.....#', '#S...##', '###.###'],
-    turrets: [
-      {
-        id: '1',
-        position: {
-          x: 3,
           y: 0
         },
         direction: 'down',
-        pattern: '10',
-        relay: 0
-      },
-      {
-        id: '2',
-        position: {
-          x: 6,
-          y: 2
-        },
-        direction: 'left',
-        pattern: '10',
-        relay: 1
-      },
-      {
-        id: '3',
-        position: {
-          x: 3,
-          y: 6
-        },
-        direction: 'up',
-        pattern: '010'
-      },
-      {
-        id: '4',
-        position: {
-          x: 0,
-          y: 2
-        },
-        direction: 'right',
-        pattern: '110'
-      }
-    ],
-    par: 16
-  },
-  {
-    id: 'return-path',
-    title: '保留退路',
-    chapter: '进阶',
-    description: '推动方块后，保留返回开关的路线。',
-    hint: '不要把方块推到无法绕行的位置。必要时退回一格等待。',
-    map: ['###.###', '#....E#', '.....a#', '#C..b..', '#.#..##', '#S..#.#', '###.###'],
-    turrets: [
-      {
-        id: '1',
-        position: {
-          x: 3,
-          y: 0
-        },
-        direction: 'down',
-        pattern: '001',
-        relay: 0
-      },
-      {
-        id: '2',
-        position: {
-          x: 6,
-          y: 3
-        },
-        direction: 'left',
-        pattern: '10',
-        relay: 1
-      },
-      {
-        id: '3',
-        position: {
-          x: 3,
-          y: 6
-        },
-        direction: 'up',
         pattern: '10'
-      },
-      {
-        id: '4',
-        position: {
-          x: 0,
-          y: 2
-        },
-        direction: 'right',
-        pattern: '001'
       }
     ],
-    par: 17
+    par: 20
   },
   {
-    id: 'long-plan',
-    title: '两个方块',
-    chapter: '挑战',
-    description: '用两个方块分别挡住横向和纵向射击。',
-    hint: '移动方块前，检查触发开关后能否原路返回。',
+    id: 'heavy-floor',
+    title: '压住火线',
+    chapter: '方块',
+    description: '出口一直在火线里。',
+    hint: '只有 X 被压住时出口才安全。X 三面是墙，箱子只能从正下方推进去。',
     map: [
-      '###.####',
-      '#.....E#',
-      '#.C...C#',
-      '#.......',
-      '#..#...#',
-      '..a..b##',
-      '#S..#..#',
-      '#####.##'
+      '######.#',
+      '#......#',
+      '#..##E..',
+      '#..#x#.#',
+      '#....S##',
+      '#..C..##',
+      '#.C.....',
+      '########'
     ],
     turrets: [
       {
         id: '1',
         position: {
-          x: 3,
-          y: 0
+          x: 7,
+          y: 2
         },
-        direction: 'down',
-        pattern: '001',
-        relay: 0
+        direction: 'left',
+        pattern: '1',
+        plate: 0
       },
       {
         id: '2',
         position: {
           x: 7,
-          y: 3
+          y: 6
         },
         direction: 'left',
-        pattern: '010',
+        pattern: '01'
+      },
+      {
+        id: '3',
+        position: {
+          x: 6,
+          y: 0
+        },
+        direction: 'down',
+        pattern: '01'
+      }
+    ],
+    par: 22
+  },
+  {
+    id: 'all-together',
+    title: '全部机关',
+    chapter: '综合',
+    description: '开关、压板、箱子一起上。',
+    hint: '左上的箱子推进 X，让横排左炮停火。另一个箱子最后要堵在 +B 炮台的炮口上。',
+    map: [
+      '########',
+      '#.a.#.##',
+      '#C#.#..#',
+      '#x#....#',
+      '##..C.##',
+      '#..b#.E#',
+      '.....S..',
+      '###.#.##'
+    ],
+    turrets: [
+      {
+        id: '1',
+        position: {
+          x: 3,
+          y: 7
+        },
+        direction: 'up',
+        pattern: '10',
         relay: 1
+      },
+      {
+        id: '2',
+        position: {
+          x: 0,
+          y: 6
+        },
+        direction: 'right',
+        pattern: '10',
+        plate: 0
       },
       {
         id: '3',
@@ -287,134 +399,67 @@ export const LEVELS: Level[] = [
           y: 7
         },
         direction: 'up',
-        pattern: '110'
+        pattern: '010111',
+        arm: 1
       },
       {
         id: '4',
-        position: {
-          x: 0,
-          y: 5
-        },
-        direction: 'right',
-        pattern: '10'
-      }
-    ],
-    par: 23
-  },
-  {
-    id: 'trade-space',
-    title: '开关顺序',
-    chapter: '挑战',
-    description: '触发开关后，仍需避开其他炮台。',
-    hint: '先触发 B，再向上移动方块，为触发 A 留出安全位置。',
-    map: [
-      '####.###',
-      '#.C...E#',
-      '#..C.#.#',
-      '#......#',
-      '....a...',
-      '#.#....#',
-      '#S.b...#',
-      '###.####'
-    ],
-    turrets: [
-      {
-        id: '1',
-        position: {
-          x: 4,
-          y: 0
-        },
-        direction: 'down',
-        pattern: '110',
-        relay: 0
-      },
-      {
-        id: '2',
         position: {
           x: 7,
-          y: 4
+          y: 6
         },
         direction: 'left',
-        pattern: '10',
-        relay: 1
-      },
-      {
-        id: '3',
-        position: {
-          x: 3,
-          y: 7
-        },
-        direction: 'up',
-        pattern: '110'
-      },
-      {
-        id: '4',
-        position: {
-          x: 0,
-          y: 4
-        },
-        direction: 'right',
-        pattern: '110'
-      }
-    ],
-    par: 23
-  },
-  {
-    id: 'the-last-line',
-    title: '综合关卡',
-    chapter: '挑战',
-    description: '调整两个方块的位置，触发开关并到达出口。',
-    hint: '先向上绕行、移动方块，再返回下方触发开关。',
-    map: [
-      '#####.##',
-      '#.....E#',
-      '#C#C...#',
-      '#......#',
-      '#..a....',
-      '..b.#.##',
-      '#S.....#',
-      '##.#####'
-    ],
-    turrets: [
-      {
-        id: '1',
-        position: {
-          x: 5,
-          y: 0
-        },
-        direction: 'down',
-        pattern: '001',
-        relay: 0
-      },
-      {
-        id: '2',
-        position: {
-          x: 7,
-          y: 4
-        },
-        direction: 'left',
-        pattern: '001',
-        relay: 1
-      },
-      {
-        id: '3',
-        position: {
-          x: 2,
-          y: 7
-        },
-        direction: 'up',
         pattern: '10'
-      },
-      {
-        id: '4',
-        position: {
-          x: 0,
-          y: 5
-        },
-        direction: 'right',
-        pattern: '001'
       }
     ],
     par: 28
+  },
+  {
+    id: 'last-line',
+    title: '最后一线',
+    chapter: '综合',
+    description: '踩下 A 之后，回出口的路就在火线里。',
+    hint: '出口只能从 +A 炮台那一列进去。两个箱子都要推去堵住炮口：一个堵 +A，一个堵右侧横炮。',
+    map: [
+      '##.###.#',
+      '#bS.C..#',
+      '##.#....',
+      '#a.#.#.#',
+      '#.C....#',
+      '##.#...#',
+      '#..E#..#',
+      '########'
+    ],
+    turrets: [
+      {
+        id: '1',
+        position: {
+          x: 2,
+          y: 0
+        },
+        direction: 'down',
+        pattern: '011',
+        arm: 0
+      },
+      {
+        id: '2',
+        position: {
+          x: 7,
+          y: 2
+        },
+        direction: 'left',
+        pattern: '101'
+      },
+      {
+        id: '3',
+        position: {
+          x: 6,
+          y: 0
+        },
+        direction: 'down',
+        pattern: '10'
+      }
+    ],
+    par: 32
   }
 ]

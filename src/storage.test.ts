@@ -11,7 +11,8 @@ describe('browser-local progress', () => {
       expect(parseProgress(raw, ids)).toEqual({
         selected: 0,
         best: {},
-        theme: 'light',
+        theme: 'dark',
+        assist: false,
         attempt: []
       })
     }
@@ -26,13 +27,19 @@ describe('browser-local progress', () => {
         }),
         ids
       )
-    ).toEqual({ selected: 0, best: { first: 12 }, theme: 'light', attempt: [] })
+    ).toEqual({ selected: 0, best: { first: 12 }, theme: 'dark', assist: false, attempt: [] })
     expect(
       parseProgress(
-        JSON.stringify({ selected: 1, theme: 'dark', best: { first: 7.3, second: '2' } }),
+        JSON.stringify({
+          selected: 1,
+          theme: 'light',
+          assist: true,
+          best: { first: 7.3, second: '2' }
+        }),
         ids
       )
-    ).toEqual({ selected: 1, best: {}, theme: 'dark', attempt: [] })
+    ).toEqual({ selected: 1, best: {}, theme: 'light', assist: true, attempt: [] })
+    expect(parseProgress(JSON.stringify({ assist: 'yes' }), ids).assist).toBe(false)
   })
   it('remains playable when access to storage is denied or its quota is full', () => {
     vi.stubGlobal('localStorage', {
@@ -52,10 +59,10 @@ describe('browser-local progress', () => {
 describe('resuming an unfinished puzzle', () => {
   it('replays actions with a complete undo history', () => {
     const level = LEVELS[0]!
-    const restored = restoreAttempt(level, ['up', 'up', 'right'])
-    expect(restored.state.turn).toBe(3)
+    const restored = restoreAttempt(level, ['down', 'right', 'wait'])
+    expect(restored.state).toMatchObject({ turn: 3, status: 'playing' })
     expect(restored.history).toHaveLength(3)
-    expect(move(level, restored.history[2]!, 'right').state).toEqual(restored.state)
+    expect(move(level, restored.history[2]!, 'wait').state).toEqual(restored.state)
   })
   it('rejects an invalid sequence instead of inventing a board state', () => {
     const level = LEVELS[0]!
