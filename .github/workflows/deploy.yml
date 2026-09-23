@@ -29,6 +29,17 @@ jobs:
         run: npm ci
       - name: Validate and build
         run: npm run validate
+      - name: Install browser test engines
+        run: npx playwright install --with-deps chromium webkit
+      - name: Verify desktop and mobile gameplay
+        run: npx playwright test
+      - name: Keep failed browser traces
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: browser-test-results
+          path: test-results/
+          retention-days: 7
       - name: Configure Pages
         uses: actions/configure-pages@v5
       - name: Upload artifact

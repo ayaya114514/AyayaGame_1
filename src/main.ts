@@ -1,1595 +1,486 @@
 import './style.css'
 import {
-  DEFAULT_ROUTE,
-  TACTICAL_NODE_DEFS,
-  TOWER_DEFS,
-  UNIT_DEFS,
-  analyzeArmy,
-  boardExposureLimit,
-  buildSpawnPlan,
-  clamp,
-  compositionOf,
-  coreDamageFor,
-  evaluateRoutePlan,
-  generateTacticalNodes,
-  generateTowerBlueprints,
-  modifiersFor,
-  pointOnRoute,
-  routeLength,
-  routeExposure,
-  routeSimilarity,
-  routeSignature,
-  routeTouchesNode,
-  selectAdaptiveMutation,
-  towerBurstAfterShot,
-  unitCost,
-  unitDefinition,
-  type AIAnalysis,
-  type AIHistory,
-  type ArmyBatch,
-  type MutationDefinition,
-  type MutationId,
-  type Point,
-  type SpawnEntry,
-  type TowerBlueprint,
-  type TowerKind,
-  type TacticalNodeBlueprint,
-  type UnitKind
+  beamsAt,
+  DELTAS,
+  firesOn,
+  initialState,
+  isTurretDisabled,
+  move,
+  positionKey,
+  relayIndex,
+  requiredRelays,
+  samePosition,
+  tileAt,
+  type Action,
+  type GameState
 } from './engine'
+import { LEVELS } from './levels'
+import { sprite } from './sprites'
+import { loadProgress, restoreAttempt, saveProgress } from './storage'
 
-type Phase = 'planning' | 'battle' | 'summary' | 'ended'
-
-type RuntimeUnit = {
-  id: number
-  kind: UnitKind
-  progress: number
-  hp: number
-  maxHp: number
-  slowUntil: number
-  shield: number
-  flash: number
-  alive: boolean
-}
-
-type RuntimeTower = TowerBlueprint & {
-  cooldown: number
-  recoil: number
-  burstLeft: number
-}
-
-type RuntimeNode = TacticalNodeBlueprint & {
-  activated: boolean
-}
-
-type Particle = {
-  x: number
-  y: number
-  vx: number
-  vy: number
-  life: number
-  maxLife: number
-  color: string
-  size: number
-}
-
-type Shot = {
-  from: Point
-  to: Point
-  life: number
-  maxLife: number
-  color: string
-  width: number
-}
-
-type FloatLabel = {
-  x: number
-  y: number
-  text: string
-  color: string
-  life: number
-}
-
-type WaveStats = {
-  breaches: number
-  coreDamage: number
-  nodes: number
-  firstLoss: UnitKind | null
-}
-
-const MAX_ROUNDS = 4
-const MAX_CORE = 36
-const STARTING_CREDITS = 120
-const MAX_ROUTE_LENGTH = 1.28
-const REQUIRED_RELAYS = 2
-const REPEATED_ROUTE_THRESHOLD = 0.72
-const REPEATED_ROUTE_DAMAGE = 1.8
-const MIN_BATCHES = 2
-const MAX_BATCHES = 4
-const maybeApp = document.querySelector<HTMLDivElement>('#app')
-
-if (!maybeApp) throw new Error('App root is missing')
-const app: HTMLDivElement = maybeApp
+const app = document.querySelector<HTMLDivElement>('#app')
+if (!app) throw new Error('Missing app root')
+const progress = loadProgress(LEVELS.map((level) => level.id))
+let selected = progress.selected
+let level = LEVELS[selected]!
+const restored = restoreAttempt(level, progress.attempt)
+let state = restored.state
+let history: GameState[] = restored.history
+progress.attempt = restored.actions
+let preview = 1
+let hintOpen = false
+let notice = state.status === 'caught' ? '被击中。可撤回上一步。' : ''
+let storageAvailable = true
+let dialogTrigger: HTMLElement | null = null
 
 app.innerHTML = `
-  <div class="app-shell">
-    <main class="game-stage">
-      <section class="battlefield" aria-label="战场">
-        <div class="canvas-wrap">
-          <canvas id="battlefield" tabindex="0" aria-label="路线战场。拖动三个圆形路标，从三枚中继中任选两枚连接，避开红色火力路段。防御塔的外圈亮点表示剩余连射，归零后会暂时过载。"></canvas>
-          <a class="brand" href="." aria-label="Ayaya Breach Protocol 首页"><strong>Ayaya</strong></a>
-          <div class="field-hud" aria-label="战局状态">
-            <div class="hud-stat round-stat"><span>回合</span><strong id="round-value">1/4</strong></div>
-            <div class="hud-stat core-stat"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 2 7 6-2.7 10H7.7L5 8l7-6Z"/></svg><strong id="core-value">36</strong></div>
-            <div class="hud-stat credit-stat"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 4 8v8l8 5 8-5V8l-8-5Zm0 5v8m-4-6 4 2 4-2"/></svg><strong id="credit-value">120</strong></div>
-          </div>
-          <div class="guide" role="status" aria-live="polite">
-            <strong id="guide-title">任选两枚中继</strong>
-            <small id="guide-copy">拖动白色节点连接，火力不超过 58%</small>
-          </div>
-          <div class="top-actions">
-            <button class="icon-button" id="sound-button" type="button" aria-label="关闭音效" aria-pressed="true">
-              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 9v6h4l5 4V5L9 9H5Zm12.5 1a3.5 3.5 0 0 1 0 4M19.7 7a7 7 0 0 1 0 10"/></svg>
-            </button>
-            <button class="icon-button reset-button" id="reset-button" type="button" aria-label="重置战局">
-              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.3 5.7M20 5v6h-6"/></svg>
-            </button>
-          </div>
-          <span class="sr-only" id="phase-label">规划中</span>
-          <button class="speed-button" id="speed-button" type="button" aria-label="切换战斗速度" disabled>1×</button>
-          <div class="sr-only" id="map-hint">拖动白色节点，任选两枚中继并避开火力</div>
-          <div class="wave-progress" id="wave-progress" hidden><i></i></div>
-          <div class="combat-toast" id="combat-toast" role="status" aria-live="polite"></div>
-          <section class="swarm-control" aria-label="路线与出兵指挥区">
-            <div class="route-dashboard" aria-label="路线评估">
-              <div class="route-fact"><span>中继</span><strong id="relay-value">0/2</strong></div>
-              <div class="route-fact"><span>火力</span><strong id="trace-value">--%</strong><small id="threat-limit">/58%</small></div>
-              <div class="route-fact"><span>长度</span><strong id="route-length">1.52</strong><small>/1.28</small></div>
-            </div>
-            <div class="unit-market" id="unit-market">
-              <button class="unit-card slime" type="button" data-unit="slime" aria-label="加入史莱姆">
-                <svg class="unit-glyph" viewBox="0 0 64 64" aria-hidden="true"><path d="M10 42c0-17 8-29 22-29s22 12 22 29c0 8-9 11-15 7-5 5-10 5-15 0-6 4-14 1-14-7Z"/><circle cx="27" cy="33" r="2.5"/><circle cx="39" cy="33" r="2.5"/></svg>
-                <span class="unit-copy"><strong>史莱姆 <em>×3</em></strong><small>诱饵 · <b class="unit-cost">30</b></small></span>
-              </button>
-              <button class="unit-card swift" type="button" data-unit="swift" aria-label="加入疾行兽">
-                <svg class="unit-glyph" viewBox="0 0 64 64" aria-hidden="true"><path d="m56 32-42 21 11-21-11-21 42 21Z"/><path d="m24 32-15 8 7-8-7-8 15 8Z"/></svg>
-                <span class="unit-copy"><strong>疾行兽 <em>×2</em></strong><small>高速 · <b class="unit-cost">42</b></small></span>
-              </button>
-              <button class="unit-card tank" type="button" data-unit="tank" aria-label="加入铁甲兽">
-                <svg class="unit-glyph" viewBox="0 0 64 64" aria-hidden="true"><path d="M12 18h38v35H12z"/><path d="M20 10h28v15H20zm30 18h8v10h-8z"/><circle cx="22" cy="53" r="5"/><circle cx="43" cy="53" r="5"/></svg>
-                <span class="unit-copy"><strong>铁甲兽 <em>×1</em></strong><small>重装 · <b class="unit-cost">60</b></small></span>
-              </button>
-            </div>
-            <div class="queue-track" id="queue-track" aria-label="当前出兵序列"></div>
-            <div class="launch-zone">
-              <div class="readiness sr-only"><i id="ready-light"></i><strong id="ready-title">路线无效</strong><small id="ready-copy">经过两枚中继并避开火力</small></div>
-              <button class="launch-button" id="launch-button" type="button" disabled>
-                <svg viewBox="0 0 32 32" aria-hidden="true"><path d="m7 25 18-9L7 7l4 9-4 9Z"/></svg>
-                <span>出发</span>
-              </button>
-            </div>
-          </section>
-        </div>
+  <main class="shell">
+    <h1 class="game-title">破阵</h1>
+    <div id="board" class="board" role="group" aria-label="棋盘；方向键移动，空格等待，Z 撤回，点炮台预览火力" aria-describedby="board-instructions"></div>
+    <div class="play-toolbar">
+      <button id="levels-button" type="button" title="选择关卡">第 <span id="level-number">1</span> 关</button>
+      <span class="step-count"><span id="turn-count">0</span> 步</span>
+      <button id="undo-button" type="button" title="撤回 · Z">撤回</button>
+      <div class="turn-action">
+        <button id="wait-button" type="button">等待<span class="wait-warning" aria-hidden="true" hidden>!</span></button>
+        <button id="next-button" type="button" hidden>下一关</button>
+      </div>
+      <button id="help-button" type="button" aria-label="更多：说明、提示与设置">更多</button>
+    </div>
+    <div class="status-line">
+      <p id="board-instructions" class="board-instructions">点相邻位置移动，触发 A 后到出口。</p>
+      <p id="board-caption" class="preview-notice" role="status" hidden></p>
+      <p id="feedback" class="feedback" role="status" aria-live="polite" aria-atomic="true"></p>
+      <p id="save-warning" class="feedback" role="status" hidden></p>
+      <section id="result" class="result" role="status" aria-label="通关结果" hidden>
+        <h2 id="result-title">已通关</h2><p id="result-copy"></p>
       </section>
-    </main>
-  </div>
-
-  <div class="modal-backdrop" id="summary-modal" role="dialog" aria-modal="true" aria-labelledby="summary-title" aria-hidden="true">
-    <section class="modal summary-modal">
-      <span class="modal-index" id="summary-index">第 1 回合</span>
-      <h2 id="summary-title">回合结束</h2>
-      <p id="summary-copy">下一回合的火力会重新布置。</p>
-      <div class="report-stats">
-        <div><span>先损失</span><strong id="stat-first-loss">—</strong></div>
-        <div><span>突破</span><strong id="stat-breaches">0</strong></div>
-        <div><span>核心伤害</span><strong id="stat-damage">0</strong></div>
-        <div><span>情报奖励</span><strong id="stat-reward">+0</strong></div>
-      </div>
-      <div class="earned-upgrade" id="earned-upgrade">
-        <span>应激进化</span>
-        <p><strong id="earned-upgrade-name">相位薄膜</strong> · <span id="earned-upgrade-copy">疾行兽抵消第一次攻击。</span></p>
-      </div>
-      <button class="primary-modal-button" id="continue-button" type="button">下一回合 <span>→</span></button>
-    </section>
-  </div>
-
-  <div class="sr-only" id="announcer" aria-live="assertive"></div>
+    </div>
+  </main>
+  <dialog id="levels-dialog" class="dialog" aria-labelledby="levels-title">
+    <div class="dialog-top"><h2 id="levels-title">关卡</h2><button type="button" data-close="levels-dialog" aria-label="返回棋盘">返回</button></div>
+    <p class="menu-note">已完成 <span id="completion-count">0 / ${LEVELS.length}</span></p>
+    <div id="level-list" class="level-list"></div>
+  </dialog>
+  <dialog id="help-dialog" class="dialog" aria-labelledby="help-title">
+    <div class="dialog-top"><h2 id="help-title"><span id="level-title"></span></h2><button type="button" data-close="help-dialog" aria-label="返回棋盘">返回</button></div>
+    <p class="menu-note">最少 <span id="par-count">8</span> 步<span id="best-score"></span></p>
+    <details class="instructions">
+      <summary>怎么玩</summary>
+      <p>点相邻格移动，点小人等待。踩下全部开关，再走到出口。</p>
+      <p>红线是下步射击。点炮台可预览后两步，不消耗步数。下方三个点始终表示未来三步：实心射击，空心停火。</p>
+      <p>箱子能推，不能拉，可以挡炮。墙块不能通过。走错可以撤回。</p>
+      <p class="menu-note">方向键移动，空格等待，Z 撤回，R 重来。</p>
+    </details>
+    <div class="menu-actions"><button id="hint-button" type="button" aria-expanded="false" aria-controls="hint">提示</button><button id="reset-button" type="button" title="重来 · R">重来</button><button id="theme-button" type="button" aria-label="切换为深色">深色</button></div>
+    <p id="hint" class="hint" hidden></p>
+    <div class="forecast-tabs" role="group" aria-label="预览未来火力"><span>预览</span><button type="button" data-preview="1" aria-pressed="true">下一步</button><button type="button" data-preview="2" aria-pressed="false">第 2 步</button><button type="button" data-preview="3" aria-pressed="false">第 3 步</button></div>
+    <p class="menu-note">按当前方块和开关位置计算。</p>
+    <p id="save-note" class="menu-note save-note" hidden></p>
+  </dialog>
 `
 
-function byId<T extends HTMLElement>(id: string): T {
+function byId<T extends HTMLElement = HTMLElement>(id: string): T {
   const element = document.getElementById(id)
-  if (!element) throw new Error(`Missing element #${id}`)
+  if (!element) throw new Error(`Missing ${id}`)
   return element as T
 }
+const board = byId('board')
+const feedback = byId('feedback')
+const cells: HTMLButtonElement[] = []
 
-const canvas = byId<HTMLCanvasElement>('battlefield')
-const maybeContext = canvas.getContext('2d')
-if (!maybeContext) throw new Error('Canvas 2D is unavailable')
-const context: CanvasRenderingContext2D = maybeContext
-
-const ui = {
-  round: byId('round-value'),
-  core: byId('core-value'),
-  credits: byId('credit-value'),
-  guideTitle: byId('guide-title'),
-  guideCopy: byId('guide-copy'),
-  routeLength: byId('route-length'),
-  relayValue: byId('relay-value'),
-  traceValue: byId('trace-value'),
-  threatLimit: byId('threat-limit'),
-  queue: byId('queue-track'),
-  market: byId('unit-market'),
-  readyLight: byId('ready-light'),
-  readyTitle: byId('ready-title'),
-  readyCopy: byId('ready-copy'),
-  launch: byId<HTMLButtonElement>('launch-button'),
-  phase: byId('phase-label'),
-  mapHint: byId('map-hint'),
-  speed: byId<HTMLButtonElement>('speed-button'),
-  waveProgress: byId('wave-progress'),
-  combatToast: byId('combat-toast'),
-  summary: byId('summary-modal'),
-  earnedUpgrade: byId('earned-upgrade'),
-  continueButton: byId<HTMLButtonElement>('continue-button'),
-  announcer: byId('announcer'),
-  sound: byId<HTMLButtonElement>('sound-button')
+function persist(): void {
+  storageAvailable = saveProgress(progress)
+  byId('save-note').textContent = storageAvailable
+    ? progress.attempt.length > 4096
+      ? '本局超过保存步数上限；通关记录仍会保存'
+      : ''
+    : '浏览器未允许保存'
+  byId('save-note').hidden = !byId('save-note').textContent
+  byId('save-warning').hidden = storageAvailable
+  byId('save-warning').textContent = storageAvailable ? '' : '本次进度无法保存。'
 }
-
-let phase: Phase = 'planning'
-let round = 1
-let credits = STARTING_CREDITS
-let core = MAX_CORE
-let score = 0
-let bestScore = Number.parseInt(localStorage.getItem('breach-protocol-best') ?? '0', 10) || 0
-let queue: ArmyBatch[] = []
-let nextBatchId = 1
-let route = DEFAULT_ROUTE.map((point) => ({ ...point }))
-let defenseRoute = DEFAULT_ROUTE.map((point) => ({ ...point }))
-let previousRoute: Point[] | null = null
-let history: AIHistory | undefined
-let analysis: AIAnalysis = analyzeArmy([])
-let towers: RuntimeTower[] = []
-let nodes: RuntimeNode[] = generateTacticalNodes(round).map((node) => ({
-  ...node,
-  activated: false
-}))
-let units: RuntimeUnit[] = []
-let spawnPlan: SpawnEntry[] = []
-let spawnIndex = 0
-let nextUnitId = 1
-let waveElapsed = 0
-let speed = 1
-let ownedMutations: MutationId[] = []
-let lastEarnedMutation: MutationDefinition | null = null
-let routeRepeated = false
-let jammedUntil = 0
-let globalBoostUntil = 0
-let selectedWaypoint = 2
-let draggedWaypoint: number | null = null
-let particles: Particle[] = []
-let shots: Shot[] = []
-let labels: FloatLabel[] = []
-let waveStats: WaveStats = {
-  breaches: 0,
-  coreDamage: 0,
-  nodes: 0,
-  firstLoss: null
+function setTheme(): void {
+  document.documentElement.dataset.theme = progress.theme
+  const themeButton = byId('theme-button')
+  themeButton.textContent = progress.theme === 'light' ? '深色' : '浅色'
+  themeButton.setAttribute('aria-label', progress.theme === 'light' ? '切换为深色' : '切换为浅色')
+  document
+    .querySelector('meta[name="theme-color"]')
+    ?.setAttribute('content', progress.theme === 'light' ? '#f3f4ef' : '#1c211d')
 }
-let lastTimestamp = performance.now()
-let canvasWidth = 0
-let canvasHeight = 0
-let toastTimer = 0
-let soundEnabled = true
-
-class SoundDeck {
-  private audioContext?: AudioContext
-
-  private getContext(): AudioContext | undefined {
-    if (!soundEnabled) return undefined
-    this.audioContext ??= new AudioContext()
-    if (this.audioContext.state === 'suspended') void this.audioContext.resume()
-    return this.audioContext
-  }
-
-  play(type: 'click' | 'launch' | 'hit' | 'breach' | 'win'): void {
-    const audio = this.getContext()
-    if (!audio) return
-    const oscillator = audio.createOscillator()
-    const gain = audio.createGain()
-    const now = audio.currentTime
-    const settings = {
-      click: [280, 360, 0.035, 0.04],
-      launch: [150, 420, 0.16, 0.075],
-      hit: [210, 120, 0.045, 0.018],
-      breach: [320, 760, 0.22, 0.09],
-      win: [260, 880, 0.45, 0.1]
-    } as const
-    const [start, end, duration, volume] = settings[type]
-    oscillator.type = type === 'hit' ? 'square' : 'sine'
-    oscillator.frequency.setValueAtTime(start, now)
-    oscillator.frequency.exponentialRampToValueAtTime(end, now + duration)
-    gain.gain.setValueAtTime(volume, now)
-    gain.gain.exponentialRampToValueAtTime(0.001, now + duration)
-    oscillator.connect(gain).connect(audio.destination)
-    oscillator.start(now)
-    oscillator.stop(now + duration)
-  }
-}
-
-const sounds = new SoundDeck()
-
-function rebuildDefense(): void {
-  const similarity = routeSimilarity(route, previousRoute)
-  routeRepeated = round > 1 && similarity >= REPEATED_ROUTE_THRESHOLD
-  const planningHistory = history ? { ...history, repeatedRoute: routeRepeated } : undefined
-  analysis = planningHistory ? analyzeArmy([], planningHistory) : analyzeArmy([])
-  const signatureSeed = routeSignature(defenseRoute)
-    .split('-')
-    .reduce((sum, value) => sum * 17 + Number(value), 19)
-  towers = generateTowerBlueprints(defenseRoute, round, analysis, signatureSeed).map((tower) => ({
-    ...tower,
-    cooldown: Math.random() * 0.3,
-    recoil: 0,
-    burstLeft: TOWER_DEFS[tower.kind].burst
-  }))
-}
-
-function formatScore(value: number): string {
-  return Math.round(value).toString().padStart(6, '0')
-}
-
-function updateUI(): void {
-  const isPlanning = phase === 'planning'
-  const modifiers = modifiersFor(ownedMutations)
-  const routeStatus = evaluateRoutePlan(route, nodes, MAX_ROUTE_LENGTH, REQUIRED_RELAYS)
-  const similarity = routeSimilarity(route, previousRoute)
-  routeRepeated = round > 1 && similarity >= REPEATED_ROUTE_THRESHOLD
-  const threatRatio = routeExposure(route, towers)
-  const threatPercent = Math.round(threatRatio * 100)
-  const exposureLimit = boardExposureLimit(round, nodes, towers, MAX_ROUTE_LENGTH, REQUIRED_RELAYS)
-  const threatLimit = Math.round(exposureLimit * 100)
-
-  ui.round.textContent = `${round}/${MAX_ROUNDS}`
-  ui.core.textContent = Math.ceil(core).toString()
-  ui.credits.textContent = credits.toString()
-  ui.routeLength.textContent = routeStatus.length.toFixed(2)
-  ui.routeLength.className = routeStatus.remaining >= 0 ? 'ready-value' : 'danger-value'
-  ui.relayValue.textContent = `${Math.min(routeStatus.linked, routeStatus.required)}/${routeStatus.required}`
-  ui.relayValue.className =
-    routeStatus.linked >= routeStatus.required ? 'ready-value' : 'danger-value'
-  ui.traceValue.textContent = `${threatPercent}%`
-  ui.traceValue.className = threatRatio > exposureLimit ? 'danger-value' : 'ready-value'
-  ui.threatLimit.textContent = `/${threatLimit}%`
-
-  ui.queue.innerHTML = queue.length
-    ? queue
-        .map(
-          (
-            batch,
-            index
-          ) => `<button type="button" class="queue-token ${batch.kind}" data-remove-batch="${batch.id}" aria-label="撤回第 ${index + 1} 批 ${UNIT_DEFS[batch.kind].name}">
-              <span>${index + 1}</span><i></i><strong>×${UNIT_DEFS[batch.kind].count + (batch.kind === 'slime' ? modifiers.slimeBonus : 0)}</strong>
-            </button>`
-        )
-        .join('')
-    : '<div class="queue-empty" aria-hidden="true"><span>出场顺序</span><i>1</i><i>2</i><i>3</i><i>4</i></div>'
-
-  ui.market.querySelectorAll<HTMLButtonElement>('[data-unit]').forEach((button) => {
-    const kind = button.dataset.unit as UnitKind
-    const cost = unitCost(kind, ownedMutations)
-    const count = UNIT_DEFS[kind].count + (kind === 'slime' ? modifiers.slimeBonus : 0)
-    const countLabel = button.querySelector('em')
-    const costLabel = button.querySelector('.unit-cost')
-    if (countLabel) countLabel.textContent = `×${count}`
-    if (costLabel) costLabel.textContent = cost.toString()
-    button.setAttribute(
-      'aria-label',
-      `加入${UNIT_DEFS[kind].name}，${count} 个单位，消耗 ${cost} 资源`
-    )
-    button.disabled = !isPlanning || credits < cost || queue.length >= MAX_BATCHES
-  })
-
-  const totalUnits = queue.reduce(
-    (sum, batch) =>
-      sum + UNIT_DEFS[batch.kind].count + (batch.kind === 'slime' ? modifiers.slimeBonus : 0),
-    0
-  )
-  const armyReady = queue.length >= MIN_BATCHES
-  const routeSafe = routeStatus.ready && threatRatio <= exposureLimit
-  const canLaunch = isPlanning && armyReady && routeSafe
-  ui.launch.disabled = !canLaunch
-  ui.readyLight.classList.toggle('ready', canLaunch)
-  ui.readyTitle.textContent =
-    routeStatus.linked < routeStatus.required
-      ? `还差 ${routeStatus.required - routeStatus.linked} 个中继`
-      : routeStatus.remaining < 0
-        ? `路线超出 ${Math.abs(routeStatus.remaining).toFixed(2)}`
-        : threatRatio > exposureLimit
-          ? `火力超出 ${threatPercent - threatLimit}%`
-          : !armyReady
-            ? `还需 ${MIN_BATCHES - queue.length} 批单位`
-            : `${totalUnits} 个单位就绪`
-  ui.readyCopy.textContent = canLaunch ? '可以出发' : '拖路线或调整队列'
-  ui.phase.textContent = phase === 'battle' ? '突破中' : phase === 'planning' ? '规划中' : '结算中'
-  if (phase === 'battle') {
-    ui.guideTitle.textContent = '骗空塔火，再让主力突破'
-    ui.guideCopy.textContent = `${analysis.name} · 塔外圈亮点是剩余连射`
-  } else if (routeStatus.linked < routeStatus.required) {
-    ui.guideTitle.textContent = '任选两枚中继'
-    ui.guideCopy.textContent = '修复、加速、停火效果不同；拖动白色节点连接'
-  } else if (routeStatus.remaining < 0) {
-    ui.guideTitle.textContent = `再缩短 ${Math.abs(routeStatus.remaining).toFixed(2)}`
-    ui.guideCopy.textContent = '保留已选中继，把折线拉直'
-  } else if (threatRatio > exposureLimit) {
-    ui.guideTitle.textContent = `把火力降到 ${threatLimit}%`
-    ui.guideCopy.textContent = '移动空闲路标，绕开防御塔射程'
-  } else if (routeRepeated) {
-    ui.guideTitle.textContent = '旧路线 · 塔伤提高 80%'
-    ui.guideCopy.textContent = '至少移动两个白色节点，或承担风险出发'
-  } else if (!armyReady) {
-    ui.guideTitle.textContent = `再选择 ${MIN_BATCHES - queue.length} 批单位`
-    ui.guideCopy.textContent = analysis.counter
-  } else {
-    ui.guideTitle.textContent = '顺序决定谁先挨打'
-    ui.guideCopy.textContent = analysis.counter
-  }
-  ui.mapHint.classList.toggle('hidden', !isPlanning || routeStatus.ready)
-  ui.speed.disabled = phase !== 'battle'
-  ui.waveProgress.toggleAttribute('hidden', phase !== 'battle')
-  app.dataset.phase = phase
-  app.dataset.round = round.toString()
-  app.dataset.core = core.toString()
-  app.dataset.relays = routeStatus.linked.toString()
-  app.dataset.routeReady = routeSafe.toString()
-  app.dataset.doctrine = analysis.mode
-  app.dataset.repeated = routeRepeated.toString()
-}
-
-function showToast(message: string, tone: 'neutral' | 'success' | 'danger' = 'neutral'): void {
-  ui.combatToast.textContent = message
-  ui.combatToast.className = `combat-toast visible ${tone}`
-  toastTimer = 1.8
-}
-
-function waveDiagnosis(): string {
-  const firstLoss = waveStats.firstLoss ? UNIT_DEFS[waveStats.firstLoss].name : null
-  if (waveStats.breaches > 0) {
-    return waveStats.coreDamage >= 8
-      ? '这套顺序造成了有效突破；下一轮防线会针对本轮主力。'
-      : `${firstLoss ? `${firstLoss}先倒下。` : ''}${analysis.counter}`
-  }
-  if (waveStats.nodes < REQUIRED_RELAYS) {
-    return `队伍没能穿过第二枚中继。${analysis.counter}`
-  }
-  return routeRepeated
-    ? '旧路线的额外火力击溃了全队。下一轮先换线。'
-    : `${firstLoss ? `${firstLoss}最先倒下。` : '全军倒在核心前。'}${analysis.counter}`
-}
-
-function addBatch(kind: UnitKind): void {
-  const cost = unitCost(kind, ownedMutations)
-  if (phase !== 'planning' || credits < cost || queue.length >= MAX_BATCHES) return
-  credits -= cost
-  queue.push({ id: nextBatchId, kind })
-  nextBatchId += 1
-  rebuildDefense()
-  updateUI()
-  sounds.play('click')
-}
-
-function removeBatch(id: number): void {
-  if (phase !== 'planning') return
-  const batch = queue.find((item) => item.id === id)
-  if (!batch) return
-  credits += unitCost(batch.kind, ownedMutations)
-  queue = queue.filter((item) => item.id !== id)
-  rebuildDefense()
-  updateUI()
-  sounds.play('click')
-}
-
-function launchWave(): void {
-  const routeStatus = evaluateRoutePlan(route, nodes, MAX_ROUTE_LENGTH, REQUIRED_RELAYS)
-  const exposureLimit = boardExposureLimit(round, nodes, towers, MAX_ROUTE_LENGTH, REQUIRED_RELAYS)
-  const routeSafe = routeStatus.ready && routeExposure(route, towers) <= exposureLimit
-  if (phase !== 'planning' || queue.length < MIN_BATCHES || !routeSafe) return
-  phase = 'battle'
-  spawnPlan = buildSpawnPlan(queue, ownedMutations)
-  spawnIndex = 0
-  waveElapsed = 0
-  waveStats = {
-    breaches: 0,
-    coreDamage: 0,
-    nodes: 0,
-    firstLoss: null
-  }
-  units = []
-  particles = []
-  shots = []
-  labels = []
-  jammedUntil = 0
-  globalBoostUntil = 0
-  nodes.forEach((node) => (node.activated = false))
-  speed = 1
-  ui.speed.textContent = '1×'
-  towers.forEach((tower) => {
-    tower.cooldown = Math.random() * 0.35
-    tower.burstLeft = TOWER_DEFS[tower.kind].burst
-  })
-  showToast(`第 ${round} 回合 · 入侵开始`, 'neutral')
-  ui.announcer.textContent = `第 ${round} 回合入侵开始，共 ${spawnPlan.length} 个单位。`
-  updateUI()
-  sounds.play('launch')
-}
-
-function spawnUnit(entry: SpawnEntry): void {
-  const definition = unitDefinition(entry.kind, ownedMutations)
-  units.push({
-    id: nextUnitId,
-    kind: entry.kind,
-    progress: 0,
-    hp: definition.hp,
-    maxHp: definition.hp,
-    slowUntil: 0,
-    shield: entry.kind === 'swift' ? modifiersFor(ownedMutations).swiftShield : 0,
-    flash: 0,
-    alive: true
-  })
-  nextUnitId += 1
-  const origin = route[0] ?? { x: 0.04, y: 0.5 }
-  burst(origin, definition.color, 4, 0.04)
-}
-
-function burst(position: Point, color: string, count: number, force = 0.08): void {
-  for (let index = 0; index < count; index += 1) {
-    const angle = Math.random() * Math.PI * 2
-    const power = force * (0.4 + Math.random() * 0.8)
-    particles.push({
-      x: position.x,
-      y: position.y,
-      vx: Math.cos(angle) * power,
-      vy: Math.sin(angle) * power,
-      life: 0.35 + Math.random() * 0.35,
-      maxLife: 0.7,
-      color,
-      size: 1.5 + Math.random() * 3
-    })
-  }
-}
-
-function damageUnit(
-  target: RuntimeUnit,
-  damage: number,
-  tower: RuntimeTower,
-  isSplash = false
-): void {
-  const definition = unitDefinition(target.kind, ownedMutations)
-  if (target.shield > 0) {
-    target.shield -= 1
-    target.flash = 0.18
-    const position = pointOnRoute(route, target.progress)
-    burst(position, '#fff1a6', 6, 0.05)
-    labels.push({ x: position.x, y: position.y, text: '护盾抵消', color: '#ffe08a', life: 0.75 })
-    return
-  }
-  const ignoresArmor = tower.kind === 'cannon' ? 0.55 : 0
-  const armor = definition.armor * (1 - ignoresArmor)
-  const repetitionPenalty = routeRepeated ? REPEATED_ROUTE_DAMAGE : 1
-  const splashMultiplier = isSplash ? 1.08 : 1
-  target.hp -= damage * splashMultiplier * repetitionPenalty * (1 - armor)
-  target.flash = 0.12
-  if (tower.kind === 'frost') {
-    target.slowUntil = Math.max(target.slowUntil, waveElapsed + 1.25 * repetitionPenalty)
-  }
-  if (target.hp > 0) return
-
-  target.alive = false
-  waveStats.firstLoss ??= target.kind
-  const position = pointOnRoute(route, target.progress)
-  burst(position, definition.color, target.kind === 'tank' ? 14 : 8, 0.12)
-  labels.push({ x: position.x, y: position.y, text: '已消灭', color: '#86918d', life: 0.8 })
-  score += Math.round(target.progress * 110)
-}
-
-function attackWithTower(tower: RuntimeTower, target: RuntimeUnit): void {
-  const definition = TOWER_DEFS[tower.kind]
-  const targetPosition = pointOnRoute(route, target.progress)
-  const damage = definition.damage * (tower.level === 2 ? 1.24 : 1)
-  const shotCycle = towerBurstAfterShot(tower.kind, tower.burstLeft)
-  tower.burstLeft = shotCycle.burstLeft
-  tower.cooldown = shotCycle.cooldown
-  tower.recoil = 0.12
-  shots.push({
-    from: { ...tower.position },
-    to: targetPosition,
-    life: tower.kind === 'cannon' ? 0.18 : 0.11,
-    maxLife: tower.kind === 'cannon' ? 0.18 : 0.11,
-    color: definition.color,
-    width: tower.kind === 'cannon' ? 3 : 1.6
-  })
-
-  damageUnit(target, damage, tower)
-  if (tower.kind === 'cannon') {
-    for (const nearby of units) {
-      if (!nearby.alive || nearby.id === target.id) continue
-      const nearbyPosition = pointOnRoute(route, nearby.progress)
-      if (
-        Math.hypot(nearbyPosition.x - targetPosition.x, nearbyPosition.y - targetPosition.y) < 0.052
-      ) {
-        damageUnit(nearby, damage * 0.35, tower, true)
-      }
-    }
-    burst(targetPosition, definition.color, 5, 0.05)
-  }
-}
-
-function activateNode(node: RuntimeNode): void {
-  if (node.activated) return
-  node.activated = true
-  waveStats.nodes += 1
-  const definition = TACTICAL_NODE_DEFS[node.kind]
-  const modifiers = modifiersFor(ownedMutations)
-  const multiplier = modifiers.nodeMultiplier
-
-  if (node.kind === 'vitality') {
-    for (const unit of units) {
-      if (!unit.alive) continue
-      unit.hp = Math.min(unit.maxHp, unit.hp + unit.maxHp * 0.3 * multiplier)
-    }
-  } else if (node.kind === 'haste') {
-    globalBoostUntil = Math.max(globalBoostUntil, waveElapsed + 2.4 * multiplier)
-  } else {
-    jammedUntil = Math.max(jammedUntil, waveElapsed + modifiers.jammerDuration * multiplier)
-  }
-
-  score += 180
-  burst(node.position, definition.color, 22, 0.15)
-  labels.push({
-    x: node.position.x,
-    y: node.position.y - 0.035,
-    text: `${definition.name}已触发`,
-    color: definition.color,
-    life: 1.25
-  })
-  showToast(`${definition.name} · 已吸收`, 'success')
-  ui.announcer.textContent = `${definition.name}已触发。${definition.detail}`
-  updateUI()
-  sounds.play('breach')
-}
-
-function updateBattle(delta: number): void {
-  waveElapsed += delta
-
-  while (spawnIndex < spawnPlan.length && (spawnPlan[spawnIndex]?.at ?? Infinity) <= waveElapsed) {
-    const entry = spawnPlan[spawnIndex]
-    if (entry) spawnUnit(entry)
-    spawnIndex += 1
-  }
-
-  const lengthScale = routeLength(route) / 1.1
-  for (const unit of units) {
-    if (!unit.alive) continue
-    const definition = unitDefinition(unit.kind, ownedMutations)
-    const slowed = unit.slowUntil > waveElapsed
-    const boosted = globalBoostUntil > waveElapsed
-    unit.progress +=
-      (definition.speed * (slowed ? 0.55 : 1) * (boosted ? 1.52 : 1) * delta) / lengthScale
-    unit.flash = Math.max(0, unit.flash - delta)
-
-    if (unit.progress >= 1) {
-      unit.alive = false
-      if (waveStats.nodes === 0) {
-        const destination = route.at(-1) ?? { x: 0.96, y: 0.5 }
-        labels.push({
-          x: destination.x - 0.04,
-          y: destination.y - 0.035,
-          text: '核心护盾阻挡',
-          color: '#f3b66f',
-          life: 1.2
-        })
-        continue
-      }
-      const breachDamage = coreDamageFor(definition.breach, waveStats.nodes)
-      waveStats.breaches += 1
-      waveStats.coreDamage += breachDamage
-      core = Math.max(0, core - breachDamage)
-      const destination = route.at(-1) ?? { x: 0.96, y: 0.5 }
-      burst(destination, definition.color, 18, 0.16)
-      labels.push({
-        x: destination.x - 0.04,
-        y: destination.y - 0.035,
-        text: `核心 −${breachDamage}`,
-        color: definition.color,
-        life: 1.2
-      })
-      score += breachDamage * 650 + Math.max(0, waveStats.breaches - 1) * 80
-      const stolen = modifiersFor(ownedMutations).breachCredit
-      if (stolen > 0) {
-        credits += stolen
-        ui.credits.textContent = credits.toString()
-      }
-      showToast(
-        waveStats.breaches > 1 ? `突破连锁 ×${waveStats.breaches}` : '核心已突破',
-        'success'
-      )
-      sounds.play('breach')
-    }
-  }
-
-  for (const node of nodes) {
-    if (node.activated) continue
-    const reached = units.some((unit) => {
-      if (!unit.alive) return false
-      const position = pointOnRoute(route, unit.progress)
-      return Math.hypot(position.x - node.position.x, position.y - node.position.y) <= node.radius
-    })
-    if (reached) activateNode(node)
-  }
-
-  for (const tower of towers) {
-    tower.cooldown -= delta
-    tower.recoil = Math.max(0, tower.recoil - delta)
-    if (waveElapsed < jammedUntil) continue
-    if (tower.cooldown > 0) continue
-    if (tower.burstLeft === 0) tower.burstLeft = TOWER_DEFS[tower.kind].burst
-    const candidates = units.filter((unit) => {
-      if (!unit.alive) return false
-      const position = pointOnRoute(route, unit.progress)
-      return Math.hypot(position.x - tower.position.x, position.y - tower.position.y) <= tower.range
-    })
-    const target = candidates.sort((left, right) => {
-      if (tower.kind === 'frost') {
-        return (
-          unitDefinition(right.kind, ownedMutations).speed -
-            unitDefinition(left.kind, ownedMutations).speed || right.progress - left.progress
-        )
-      }
-      if (tower.kind === 'cannon') {
-        const crowd = (unit: RuntimeUnit) => {
-          const position = pointOnRoute(route, unit.progress)
-          return candidates.filter((other) => {
-            const otherPosition = pointOnRoute(route, other.progress)
-            return Math.hypot(position.x - otherPosition.x, position.y - otherPosition.y) < 0.055
-          }).length
+function buildBoard(): void {
+  board.replaceChildren()
+  cells.length = 0
+  board.style.setProperty('--size', String(level.map.length))
+  level.map.forEach((row, y) =>
+    [...row].forEach((_, x) => {
+      const cell = document.createElement('button')
+      cell.type = 'button'
+      cell.className = 'cell'
+      cell.dataset.x = String(x)
+      cell.dataset.y = String(y)
+      cell.tabIndex = -1
+      cell.addEventListener('click', (event) => {
+        if (suppressClick && event.detail > 0) {
+          suppressClick = false
+          return
         }
-        return crowd(right) - crowd(left) || right.progress - left.progress
-      }
-      return right.progress - left.progress
-    })[0]
-    if (target) attackWithTower(tower, target)
-  }
-
-  particles.forEach((particle) => {
-    particle.x += particle.vx * delta
-    particle.y += particle.vy * delta
-    particle.vx *= 0.94
-    particle.vy *= 0.94
-    particle.life -= delta
-  })
-  particles = particles.filter((particle) => particle.life > 0)
-  shots.forEach((shot) => (shot.life -= delta))
-  shots = shots.filter((shot) => shot.life > 0)
-  labels.forEach((label) => {
-    label.y -= delta * 0.025
-    label.life -= delta
-  })
-  labels = labels.filter((label) => label.life > 0)
-
-  const lastSpawnAt = spawnPlan.at(-1)?.at ?? 0
-  const alive = units.some((unit) => unit.alive)
-  const progress = Math.min(1, waveElapsed / Math.max(lastSpawnAt + 11, 1))
-  const bar = ui.waveProgress.firstElementChild as HTMLElement | null
-  if (bar) bar.style.width = `${progress * 100}%`
-
-  if (core <= 0) {
-    finishGame(true)
-  } else if (spawnIndex >= spawnPlan.length && !alive && waveElapsed > lastSpawnAt + 0.8) {
-    finishWave()
-  }
-}
-
-function finishWave(): void {
-  phase = 'summary'
-  const composition = compositionOf(queue)
-  history = {
-    ...composition,
-    repeatedRoute: routeRepeated,
-    breaches: waveStats.breaches
-  }
-  previousRoute = route.map((point) => ({ ...point }))
-  const reward = 58 + round * 6 + waveStats.coreDamage * 3
-  credits += reward
-
-  if (round >= MAX_ROUNDS) {
-    finishGame(false)
-    return
-  }
-
-  byId('summary-index').textContent = `第 ${round} 回合`
-  byId('summary-title').textContent = waveStats.breaches ? '突破完成' : '全部被拦截'
-  byId('summary-copy').textContent = waveDiagnosis()
-  byId('stat-first-loss').textContent = waveStats.firstLoss
-    ? UNIT_DEFS[waveStats.firstLoss].name.replace('群', '')
-    : '无'
-  byId('stat-breaches').textContent = waveStats.breaches.toString()
-  byId('stat-damage').textContent = waveStats.coreDamage.toString()
-  byId('stat-reward').textContent = `+${reward}`
-  const adaptation = selectAdaptiveMutation(queue, analysis.mode, waveStats, ownedMutations)
-  lastEarnedMutation = adaptation?.mutation ?? null
-  if (lastEarnedMutation) ownedMutations.push(lastEarnedMutation.id)
-  ui.earnedUpgrade.hidden = !lastEarnedMutation
-  byId('earned-upgrade-name').textContent = lastEarnedMutation?.name ?? '无'
-  byId('earned-upgrade-copy').textContent = lastEarnedMutation
-    ? `${adaptation?.reason}：${lastEarnedMutation.detail}`
-    : '没有新的进化。'
-  ui.continueButton.disabled = false
-  ui.continueButton.innerHTML = '下一回合 <span>→</span>'
-  ui.summary.classList.add('open')
-  ui.summary.setAttribute('aria-hidden', 'false')
-  updateUI()
-}
-
-function finishGame(victory: boolean): void {
-  phase = 'ended'
-  const finalScore = Math.round(score + Math.max(0, MAX_ROUNDS - round) * 900 + core * -20)
-  score = Math.max(0, finalScore)
-  if (score > bestScore) {
-    bestScore = score
-    localStorage.setItem('breach-protocol-best', bestScore.toString())
-  }
-  byId('summary-index').textContent = victory ? '入侵完成' : '入侵终止'
-  byId('summary-title').textContent = victory ? '核心已摧毁' : '突破失败'
-  byId('summary-copy').textContent = victory
-    ? `你在第 ${round} 回合完成突破。最终情报评分 ${formatScore(score)}。`
-    : `四轮结束，核心还剩 ${core} 点。`
-  byId('stat-first-loss').textContent = waveStats.firstLoss
-    ? UNIT_DEFS[waveStats.firstLoss].name.replace('群', '')
-    : '无'
-  byId('stat-breaches').textContent = waveStats.breaches.toString()
-  byId('stat-damage').textContent = waveStats.coreDamage.toString()
-  byId('stat-reward').textContent = formatScore(score)
-  ui.earnedUpgrade.hidden = true
-  lastEarnedMutation = null
-  ui.continueButton.disabled = false
-  ui.continueButton.innerHTML = '再次入侵 <span>↻</span>'
-  ui.summary.classList.add('open')
-  ui.summary.setAttribute('aria-hidden', 'false')
-  ui.announcer.textContent = victory ? '任务完成，核心已摧毁。' : '任务失败，防线守住了核心。'
-  showToast(victory ? '核心已离线' : '入侵已终止', victory ? 'success' : 'danger')
-  updateUI()
-  sounds.play(victory ? 'win' : 'hit')
-}
-
-function advanceRound(): void {
-  if (phase === 'ended') {
-    resetGame()
-    ui.summary.classList.remove('open')
-    ui.summary.setAttribute('aria-hidden', 'true')
-    return
-  }
-  round += 1
-  phase = 'planning'
-  queue = []
-  units = []
-  particles = []
-  shots = []
-  labels = []
-  spawnPlan = []
-  spawnIndex = 0
-  waveElapsed = 0
-  waveStats = {
-    breaches: 0,
-    coreDamage: 0,
-    nodes: 0,
-    firstLoss: null
-  }
-  jammedUntil = 0
-  globalBoostUntil = 0
-  selectedWaypoint = 2
-  defenseRoute = (previousRoute ?? route).map((point) => ({ ...point }))
-  nodes = generateTacticalNodes(round).map((node) => ({ ...node, activated: false }))
-  rebuildDefense()
-  ui.summary.classList.remove('open')
-  ui.summary.setAttribute('aria-hidden', 'true')
-  showToast(`第 ${round} 回合 · 防线已重布`, 'neutral')
-  ui.announcer.textContent = `第 ${round} 回合规划开始。请重新规划路线和出兵顺序。`
-  updateUI()
-}
-
-function resetGame(): void {
-  phase = 'planning'
-  round = 1
-  credits = STARTING_CREDITS
-  core = MAX_CORE
-  score = 0
-  queue = []
-  nextBatchId = 1
-  route = DEFAULT_ROUTE.map((point) => ({ ...point }))
-  defenseRoute = DEFAULT_ROUTE.map((point) => ({ ...point }))
-  previousRoute = null
-  history = undefined
-  ownedMutations = []
-  lastEarnedMutation = null
-  routeRepeated = false
-  jammedUntil = 0
-  globalBoostUntil = 0
-  nodes = generateTacticalNodes(round).map((node) => ({ ...node, activated: false }))
-  units = []
-  spawnPlan = []
-  spawnIndex = 0
-  waveElapsed = 0
-  waveStats = { breaches: 0, coreDamage: 0, nodes: 0, firstLoss: null }
-  speed = 1
-  particles = []
-  shots = []
-  labels = []
-  ui.earnedUpgrade.hidden = false
-  ui.continueButton.disabled = false
-  rebuildDefense()
-  updateUI()
-}
-
-function resizeCanvas(): void {
-  const bounds = canvas.getBoundingClientRect()
-  const ratio = Math.min(window.devicePixelRatio || 1, 2)
-  canvasWidth = Math.max(1, bounds.width)
-  canvasHeight = Math.max(1, bounds.height)
-  const nextWidth = Math.round(canvasWidth * ratio)
-  const nextHeight = Math.round(canvasHeight * ratio)
-  if (canvas.width !== nextWidth || canvas.height !== nextHeight) {
-    canvas.width = nextWidth
-    canvas.height = nextHeight
-    context.setTransform(ratio, 0, 0, ratio, 0, 0)
-  }
-}
-
-const px = (point: Point): Point => ({ x: point.x * canvasWidth, y: point.y * canvasHeight })
-
-function organicBlob(radius: number, seed: number, lobes = 9): void {
-  const points = Array.from({ length: lobes }, (_, index) => {
-    const angle = (index / lobes) * Math.PI * 2
-    const wobble = 1 + Math.sin(seed * 1.73 + index * 2.19) * 0.12
-    return {
-      x: Math.cos(angle) * radius * wobble,
-      y: Math.sin(angle) * radius * wobble
-    }
-  })
-  const first = points[0]
-  const last = points.at(-1)
-  if (!first || !last) return
-  context.beginPath()
-  context.moveTo((first.x + last.x) / 2, (first.y + last.y) / 2)
-  for (let index = 0; index < points.length; index += 1) {
-    const current = points[index]
-    const next = points[(index + 1) % points.length]
-    if (!current || !next) continue
-    context.quadraticCurveTo(
-      current.x,
-      current.y,
-      (current.x + next.x) / 2,
-      (current.y + next.y) / 2
-    )
-  }
-  context.closePath()
-}
-
-function routePixelAt(progress: number): Point {
-  const point = px(pointOnRoute(route, progress))
-  const before = px(pointOnRoute(route, clamp(progress - 0.004, 0, 1)))
-  const after = px(pointOnRoute(route, clamp(progress + 0.004, 0, 1)))
-  const dx = after.x - before.x
-  const dy = after.y - before.y
-  const length = Math.max(1, Math.hypot(dx, dy))
-  const wobble = Math.sin(progress * 47 + round * 0.7) * 2.2 + Math.sin(progress * 19) * 1.1
-  return {
-    x: point.x + (-dy / length) * wobble,
-    y: point.y + (dx / length) * wobble
-  }
-}
-
-function drawBackdrop(): void {
-  context.clearRect(0, 0, canvasWidth, canvasHeight)
-  context.fillStyle = '#10130d'
-  context.fillRect(0, 0, canvasWidth, canvasHeight)
-
-  context.save()
-  context.globalAlpha = 0.48
-  context.fillStyle = '#192015'
-  context.beginPath()
-  context.moveTo(0, canvasHeight * 0.09)
-  context.bezierCurveTo(
-    canvasWidth * 0.12,
-    canvasHeight * 0.23,
-    canvasWidth * 0.33,
-    -canvasHeight * 0.03,
-    canvasWidth * 0.51,
-    canvasHeight * 0.11
+        if (level.turrets.some((turret) => turret.position.x === x && turret.position.y === y)) {
+          if (state.status === 'playing') {
+            preview = (preview % 3) + 1
+            notice = ''
+            render()
+          }
+          return
+        }
+        const dx = x - state.player.x,
+          dy = y - state.player.y
+        if (!dx && !dy) act('wait')
+        else if (Math.abs(dx) + Math.abs(dy) === 1)
+          act(dx === 1 ? 'right' : dx === -1 ? 'left' : dy === 1 ? 'down' : 'up')
+        else announce('只能移动到相邻格。')
+      })
+      cells.push(cell)
+      board.append(cell)
+    })
   )
-  context.bezierCurveTo(
-    canvasWidth * 0.69,
-    canvasHeight * 0.25,
-    canvasWidth * 0.78,
-    canvasHeight * 0.02,
-    canvasWidth,
-    canvasHeight * 0.18
-  )
-  context.lineTo(canvasWidth, 0)
-  context.lineTo(0, 0)
-  context.closePath()
-  context.fill()
-
-  context.fillStyle = '#171c13'
-  context.beginPath()
-  context.moveTo(0, canvasHeight * 0.81)
-  context.bezierCurveTo(
-    canvasWidth * 0.16,
-    canvasHeight * 0.68,
-    canvasWidth * 0.29,
-    canvasHeight * 0.97,
-    canvasWidth * 0.53,
-    canvasHeight * 0.82
-  )
-  context.bezierCurveTo(
-    canvasWidth * 0.72,
-    canvasHeight * 0.7,
-    canvasWidth * 0.84,
-    canvasHeight * 0.98,
-    canvasWidth,
-    canvasHeight * 0.74
-  )
-  context.lineTo(canvasWidth, canvasHeight)
-  context.lineTo(0, canvasHeight)
-  context.closePath()
-  context.fill()
-
-  for (const tower of towers) {
-    const center = px(tower.position)
-    const radius = tower.range * Math.min(canvasWidth, canvasHeight)
-    context.save()
-    context.translate(center.x, center.y)
-    context.rotate(tower.id * 0.37)
-    organicBlob(radius, tower.id * 3.1, 11)
-    context.fillStyle = tower.kind === 'cannon' ? '#351c17' : '#20281f'
-    context.globalAlpha = tower.kind === 'cannon' ? 0.14 : 0.11
-    context.fill()
-    context.restore()
-  }
-  context.restore()
+  const beams = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
+  beams.classList.add('beam-layer')
+  beams.setAttribute('viewBox', `0 0 ${level.map[0]!.length} ${level.map.length}`)
+  beams.setAttribute('aria-hidden', 'true')
+  board.append(beams)
 }
 
-function traceRoute(): void {
-  if (route.length < 2) return
-  const first = routePixelAt(0)
-  context.beginPath()
-  context.moveTo(first.x, first.y)
-  for (let index = 1; index <= 120; index += 1) {
-    const current = routePixelAt(index / 120)
-    context.lineTo(current.x, current.y)
-  }
+function announce(message: string): void {
+  notice = message
+  feedback.textContent = message
+  if (message) byId('board-instructions').hidden = true
 }
-
-function drawRoute(): void {
-  context.save()
-  context.lineCap = 'round'
-  context.lineJoin = 'round'
-  traceRoute()
-  context.strokeStyle = '#070905'
-  context.lineWidth = Math.max(32, canvasHeight * 0.065)
-  context.stroke()
-  traceRoute()
-  context.strokeStyle = '#2d3525'
-  context.lineWidth = Math.max(22, canvasHeight * 0.043)
-  context.stroke()
-  context.lineWidth = 5
-  let previous = routePixelAt(0)
-  for (let index = 1; index <= 120; index += 1) {
-    const progress = index / 120
-    const point = pointOnRoute(route, progress)
-    const current = routePixelAt(progress)
-    const exposed = towers.some(
-      (tower) => Math.hypot(point.x - tower.position.x, point.y - tower.position.y) <= tower.range
-    )
-    context.strokeStyle = exposed ? '#df796f' : '#afc489'
-    context.beginPath()
-    context.moveTo(previous.x, previous.y)
-    context.lineTo(current.x, current.y)
-    context.stroke()
-    previous = current
-  }
-  for (const progress of [0.2, 0.4, 0.6, 0.8]) {
-    const center = routePixelAt(progress)
-    const ahead = routePixelAt(clamp(progress + 0.006, 0, 1))
-    const angle = Math.atan2(ahead.y - center.y, ahead.x - center.x)
-    context.save()
-    context.translate(center.x, center.y)
-    context.rotate(angle)
-    context.fillStyle = '#68735a'
-    context.beginPath()
-    context.moveTo(6, 0)
-    context.lineTo(-4, -5)
-    context.lineTo(-1, 0)
-    context.lineTo(-4, 5)
-    context.closePath()
-    context.fill()
-    context.restore()
-  }
-  context.restore()
-}
-
-function drawDefenseMemory(): void {
-  if (phase !== 'planning' || !previousRoute) return
-  const first = px(pointOnRoute(previousRoute, 0))
-  context.save()
-  context.beginPath()
-  context.moveTo(first.x, first.y)
-  for (let index = 1; index <= 96; index += 1) {
-    const point = px(pointOnRoute(previousRoute, index / 96))
-    context.lineTo(point.x, point.y)
-  }
-  context.setLineDash([3, 11])
-  context.lineCap = 'round'
-  context.lineWidth = 7
-  context.strokeStyle = routeRepeated ? 'rgba(226, 123, 114, .62)' : 'rgba(226, 123, 114, .28)'
-  context.stroke()
-  context.setLineDash([])
-  const label = px(pointOnRoute(previousRoute, 0.5))
-  context.fillStyle = routeRepeated ? '#ef9188' : '#9d7770'
-  context.font = '700 12px ui-sans-serif, sans-serif'
-  context.textAlign = 'center'
-  context.fillText(routeRepeated ? '重复 ×1.8' : '上轮路线', label.x, label.y - 15)
-  context.restore()
-}
-
-function drawPortal(position: Point, destination: boolean): void {
-  const center = px(position)
-  context.save()
-  context.translate(center.x, center.y)
-  const color = destination ? '#d4776e' : '#b7c795'
-  context.rotate(destination ? 0.18 : -0.22)
-  organicBlob(24, destination ? 17 : 11, 8)
-  context.fillStyle = color
-  context.fill()
-  organicBlob(16, destination ? 19 : 13, 8)
-  context.fillStyle = '#0c0f09'
-  context.fill()
-  context.fillStyle = color
-  if (destination) {
-    context.beginPath()
-    context.moveTo(1, -9)
-    context.lineTo(9, -1)
-    context.lineTo(-1, 9)
-    context.lineTo(-8, 1)
-    context.closePath()
-    context.fill()
-  } else {
-    context.beginPath()
-    context.moveTo(10, -1)
-    context.lineTo(-5, -9)
-    context.lineTo(-1, 0)
-    context.lineTo(-6, 9)
-    context.closePath()
-    context.fill()
-  }
-  context.restore()
-  context.save()
-  context.fillStyle = destination ? '#e27b72' : '#c9dfa0'
-  context.font = '650 12px ui-sans-serif, sans-serif'
-  context.textAlign = destination ? 'right' : 'left'
-  context.fillText(
-    destination ? '核心' : '入口',
-    center.x + (destination ? -18 : 18),
-    center.y + 36
-  )
-  context.restore()
-}
-
-function drawTacticalNode(node: RuntimeNode): void {
-  const center = px(node.position)
-  const radius = Math.min(canvasWidth, canvasHeight) * node.radius
-  const nodeRotation = node.id % 2 ? -0.24 : 0.19
-  const connected = routeTouchesNode(route, node)
-  const definition = TACTICAL_NODE_DEFS[node.kind]
-  context.save()
-  context.translate(center.x, center.y)
-  context.rotate(nodeRotation)
-  context.globalAlpha = node.activated ? 0.08 : connected ? 0.18 : 0.06
-  organicBlob(radius, node.id * 5.2, 10)
-  context.fillStyle = definition.color
-  context.fill()
-  context.globalAlpha = node.activated ? 0.32 : connected ? 1 : 0.58
-  organicBlob(22, node.id * 7.1, 8)
-  context.fillStyle = definition.color
-  context.fill()
-  organicBlob(15, node.id * 7.1 + 2, 8)
-  context.fillStyle = '#0d0e0c'
-  context.fill()
-  context.fillStyle = definition.color
-  context.lineWidth = 3
-  if (node.kind === 'vitality') {
-    context.fillRect(-3, -10, 6, 20)
-    context.fillRect(-10, -3, 20, 6)
-  } else if (node.kind === 'haste') {
-    context.beginPath()
-    context.moveTo(-10, -9)
-    context.lineTo(0, 0)
-    context.lineTo(-10, 9)
-    context.lineTo(-4, 9)
-    context.lineTo(6, 0)
-    context.lineTo(-4, -9)
-    context.closePath()
-    context.fill()
-  } else {
-    context.strokeStyle = definition.color
-    context.beginPath()
-    context.moveTo(-8, -8)
-    context.lineTo(8, 8)
-    context.moveTo(8, -8)
-    context.lineTo(-8, 8)
-    context.stroke()
-  }
-  if (connected && !node.activated) {
-    context.beginPath()
-    context.arc(0, 0, 28, 0, Math.PI * 2)
-    context.strokeStyle = definition.color
-    context.lineWidth = 2
-    context.stroke()
-  }
-  context.rotate(-nodeRotation)
-  const nodeLabels = { vitality: '修复', haste: '加速', jammer: '停火' } as const
-  context.globalAlpha = node.activated ? 0.45 : connected ? 1 : 0.74
-  context.fillStyle = connected ? definition.color : '#d7dec9'
-  context.font = '700 13px ui-sans-serif, sans-serif'
-  context.textAlign = 'center'
-  context.fillText(
-    `${connected && phase === 'planning' ? '✓ ' : ''}${nodeLabels[node.kind]}`,
-    0,
-    38
-  )
-  context.restore()
-}
-
-function drawTower(tower: RuntimeTower): void {
-  const center = px(tower.position)
-  const towerColor: Record<TowerKind, string> = {
-    pulse: '#8d9680',
-    frost: '#87939a',
-    cannon: '#a58a78'
-  }
-  const color = towerColor[tower.kind]
-  const radius = tower.kind === 'cannon' ? 17 : 15
-  context.save()
-  context.translate(center.x, center.y)
-  context.rotate(tower.id * 0.51 - 0.3)
-  if (phase === 'battle' && waveElapsed < jammedUntil) context.globalAlpha = 0.42
-  organicBlob(radius + 5, tower.id * 2.7, tower.kind === 'cannon' ? 7 : 9)
-  context.fillStyle = color
-  context.fill()
-  organicBlob(radius, tower.id * 3.3 + 1, tower.kind === 'cannon' ? 7 : 9)
-  context.fillStyle = '#0c0f0a'
-  context.fill()
-  context.fillStyle = color
-  if (tower.kind === 'pulse') {
-    context.fillRect(-3, -9, 6, 18)
-    context.fillRect(-9, -3, 18, 6)
-  } else if (tower.kind === 'frost') {
-    context.strokeStyle = color
-    context.lineWidth = 2.5
-    for (let index = 0; index < 3; index += 1) {
-      context.rotate(Math.PI / 3)
-      context.beginPath()
-      context.moveTo(-8, 0)
-      context.lineTo(8, 0)
-      context.stroke()
-    }
-  } else {
-    context.fillRect(-4, -8 - tower.recoil * 14, 8, 21)
-  }
-  if (tower.level === 2) {
-    context.fillStyle = '#d8d2bd'
-    for (const angle of [0.1, 2.2, 4.3]) {
-      context.beginPath()
-      context.arc(
-        Math.cos(angle) * (radius + 8),
-        Math.sin(angle) * (radius + 8),
-        2.4,
-        0,
-        Math.PI * 2
-      )
-      context.fill()
-    }
-  }
-  const definition = TOWER_DEFS[tower.kind]
-  for (let index = 0; index < definition.burst; index += 1) {
-    const angle = -Math.PI / 2 + (index - (definition.burst - 1) / 2) * 0.34
-    context.beginPath()
-    context.arc(
-      Math.cos(angle) * (radius + 11),
-      Math.sin(angle) * (radius + 11),
-      2.5,
-      0,
-      Math.PI * 2
-    )
-    context.fillStyle = index < tower.burstLeft ? definition.color : '#343a31'
-    context.fill()
-  }
-  context.restore()
-}
-
-function drawUnit(unit: RuntimeUnit): void {
-  if (!unit.alive) return
-  const position = routePixelAt(unit.progress)
-  const ahead = routePixelAt(clamp(unit.progress + 0.008, 0, 1))
-  const angle = Math.atan2(ahead.y - position.y, ahead.x - position.x)
-  const definition = unitDefinition(unit.kind, ownedMutations)
-  const radius = Math.max(10, definition.radius * canvasWidth * 1.28)
-  context.save()
-  context.translate(position.x, position.y)
-  context.rotate(angle)
-  context.fillStyle = unit.flash > 0 ? '#ffffff' : definition.color
-  context.strokeStyle = 'rgba(4, 8, 8, .75)'
-  context.lineWidth = 1.5
-  if (unit.shield > 0) {
-    context.beginPath()
-    context.arc(0, 0, radius + 4, 0, Math.PI * 2)
-    context.strokeStyle = 'rgba(255, 232, 151, .86)'
-    context.stroke()
-    context.strokeStyle = 'rgba(4, 8, 8, .75)'
-  }
-  if (unit.kind === 'slime') {
-    context.beginPath()
-    context.moveTo(-radius, radius * 0.45)
-    context.quadraticCurveTo(-radius * 0.75, -radius, 0, -radius * 0.86)
-    context.quadraticCurveTo(radius * 0.82, -radius, radius, radius * 0.45)
-    context.quadraticCurveTo(radius * 0.35, radius * 0.88, 0, radius * 0.55)
-    context.quadraticCurveTo(-radius * 0.45, radius * 0.88, -radius, radius * 0.45)
-    context.fill()
-    context.stroke()
-    context.fillStyle = '#10211b'
-    context.beginPath()
-    context.arc(radius * 0.2, -radius * 0.16, 1.5, 0, Math.PI * 2)
-    context.arc(radius * 0.52, -radius * 0.12, 1.5, 0, Math.PI * 2)
-    context.fill()
-  } else if (unit.kind === 'swift') {
-    context.beginPath()
-    context.moveTo(radius, 0)
-    context.lineTo(-radius * 0.75, -radius * 0.8)
-    context.lineTo(-radius * 0.35, 0)
-    context.lineTo(-radius * 0.75, radius * 0.8)
-    context.closePath()
-    context.fill()
-    context.stroke()
-  } else {
-    organicBlob(radius, unit.id * 1.9, 7)
-    context.fill()
-    context.stroke()
-    context.fillStyle = '#2b335a'
-    context.rotate(-0.18)
-    context.fillRect(-radius * 0.08, -radius * 0.92, radius * 1.06, radius * 0.3)
-  }
-  context.rotate(-angle)
-  const barWidth = radius * 2.1
-  context.fillStyle = 'rgba(0, 0, 0, .6)'
-  context.fillRect(-barWidth / 2, -radius - 8, barWidth, 2.5)
-  context.fillStyle = definition.color
-  context.fillRect(-barWidth / 2, -radius - 8, barWidth * clamp(unit.hp / unit.maxHp, 0, 1), 2.5)
-  context.restore()
-}
-
-function drawWaypoints(): void {
-  if (phase !== 'planning') return
-  route.slice(1, -1).forEach((position, sliceIndex) => {
-    const index = sliceIndex + 1
-    const center = px(position)
-    const selected = index === selectedWaypoint
-    context.save()
-    context.translate(center.x, center.y)
-    context.rotate(index * 0.73)
-    const size = selected ? 18 : 15
-    organicBlob(size + (selected ? 5 : 3), index * 4.3 + round, 8)
-    context.fillStyle = selected ? '#eef0e7' : '#747e66'
-    context.fill()
-    organicBlob(size, index * 5.1 + round, 8)
-    context.fillStyle = selected ? '#b7c795' : '#1b1e18'
-    context.fill()
-    context.fillStyle = selected ? '#10120e' : '#aab88d'
-    organicBlob(4.5, index * 2.3, 6)
-    context.fill()
-    context.restore()
-  })
-}
-
-function drawEffects(): void {
-  for (const shot of shots) {
-    const from = px(shot.from)
-    const to = px(shot.to)
-    context.save()
-    context.globalAlpha = clamp(shot.life / shot.maxLife, 0, 1)
-    context.strokeStyle = shot.color
-    context.lineWidth = shot.width
-    context.beginPath()
-    context.moveTo(from.x, from.y)
-    context.lineTo(to.x, to.y)
-    context.stroke()
-    context.restore()
-  }
-  for (const particle of particles) {
-    const position = px(particle)
-    context.save()
-    context.globalAlpha = clamp(particle.life / particle.maxLife, 0, 1)
-    context.fillStyle = particle.color
-    context.beginPath()
-    context.arc(position.x, position.y, particle.size, 0, Math.PI * 2)
-    context.fill()
-    context.restore()
-  }
-  for (const label of labels) {
-    const position = px(label)
-    context.save()
-    context.globalAlpha = clamp(label.life / 0.8, 0, 1)
-    context.fillStyle = label.color
-    context.font = '650 12px ui-sans-serif, sans-serif'
-    context.textAlign = 'center'
-    context.fillText(label.text, position.x, position.y)
-    context.restore()
-  }
-}
-
 function render(): void {
-  resizeCanvas()
-  drawBackdrop()
-  drawDefenseMemory()
-  drawRoute()
-  nodes.forEach(drawTacticalNode)
-  const start = route[0]
-  const destination = route.at(-1)
-  if (start) drawPortal(start, false)
-  if (destination) drawPortal(destination, true)
-  towers.forEach(drawTower)
-  units.forEach(drawUnit)
-  drawEffects()
-  drawWaypoints()
-}
+  const ended = state.status !== 'playing'
+  const caught = state.status === 'caught'
+  const won = state.status === 'won'
+  const shownTurn = caught ? state.turn : state.turn + preview
+  const beams = won ? [] : beamsAt(level, state, shownTurn)
+  const dangerous = new Set(beams.flatMap((beam) => beam.cells.map(positionKey)))
+  board.dataset.status = state.status
+  board.dataset.preview = String(preview)
+  byId('level-number').textContent = `${selected + 1}`
+  byId('level-title').textContent = level.title
+  byId('turn-count').textContent = String(state.turn)
+  byId('par-count').textContent = String(level.par)
+  const introductory = selected === 0 || level.id === 'moving-cover'
+  byId('board-instructions').textContent =
+    level.id === 'moving-cover' ? '箱子能推，也能挡炮。' : '点相邻格移动，踩下 A，再到出口。'
+  byId('board-instructions').hidden =
+    !introductory || state.turn !== 0 || !!progress.best[level.id] || preview !== 1 || !!notice
+  byId('completion-count').textContent = `${Object.keys(progress.best).length} / ${LEVELS.length}`
+  byId('board-caption').hidden = preview === 1 || ended
+  byId('board-caption').textContent = `第 ${state.turn + preview} 步射击 · 仅预览`
+  const best = progress.best[level.id]
+  byId('best-score').textContent = best ? `，个人最佳 ${best} 步` : ''
 
-function frame(timestamp: number): void {
-  const rawDelta = Math.min((timestamp - lastTimestamp) / 1000, 0.05)
-  lastTimestamp = timestamp
-  if (phase === 'battle') updateBattle(rawDelta * speed)
-  if (toastTimer > 0) {
-    toastTimer -= rawDelta
-    if (toastTimer <= 0) ui.combatToast.classList.remove('visible')
-  }
-  render()
-  requestAnimationFrame(frame)
-}
-
-function pointFromPointer(event: PointerEvent): Point {
-  const bounds = canvas.getBoundingClientRect()
-  return {
-    x: clamp((event.clientX - bounds.left) / bounds.width, 0, 1),
-    y: clamp((event.clientY - bounds.top) / bounds.height, 0, 1)
-  }
-}
-
-function nearestWaypoint(pointer: Point): number | null {
-  let nearest: number | null = null
-  let distance = 0.07
-  route.slice(1, -1).forEach((point, sliceIndex) => {
-    const current = Math.hypot(
-      (point.x - pointer.x) * (canvasWidth / canvasHeight),
-      point.y - pointer.y
-    )
-    if (current < distance) {
-      nearest = sliceIndex + 1
-      distance = current
+  const focusWasOnPlayer = document.activeElement?.classList.contains('is-player')
+  for (const cell of cells) {
+    const position = { x: Number(cell.dataset.x), y: Number(cell.dataset.y) }
+    const tile = tileAt(level, position)
+    const turret = level.turrets.find((t) => samePosition(t.position, position))
+    const crate = state.crates.some((c) => samePosition(c, position))
+    const player = samePosition(position, state.player)
+    const relay = relayIndex(tile)
+    const collected = relay >= 0 && !!(state.collected & (1 << relay))
+    const danger = dangerous.has(positionKey(position))
+    const distance = Math.abs(position.x - state.player.x) + Math.abs(position.y - state.player.y)
+    const direction: Action =
+      position.x > state.player.x
+        ? 'right'
+        : position.x < state.player.x
+          ? 'left'
+          : position.y > state.player.y
+            ? 'down'
+            : 'up'
+    const result = distance === 1 && !ended ? move(level, state, direction) : null
+    const available = !!result?.changed
+    const safe = result?.state.status !== 'caught'
+    const disabled = turret ? isTurretDisabled(turret, state.collected) : false
+    let content = ''
+    let name = '空地'
+    if (tile === '#') {
+      content = ''
+      name = '墙'
+    } else if (turret) {
+      const rotation = { up: 0, right: 90, down: 180, left: 270 }[turret.direction]
+      const letter = turret.relay === undefined ? '' : String.fromCharCode(65 + turret.relay)
+      const upcoming = Array.from({ length: 3 }, (_, index) =>
+        firesOn(turret, state.turn + index + 1, state.collected)
+      )
+      content = `<span class="turret-mark ${disabled ? 'off' : ''} ${firesOn(turret, shownTurn, state.collected) ? 'firing' : ''}">${sprite('turret', rotation)}<small>${letter}</small></span>${disabled || ended ? '' : `<span class="turret-beats" aria-hidden="true">${upcoming.map((fires) => `<i class="${fires ? 'fire' : ''}"></i>`).join('')}</span>`}`
+      name = `${letter || turret.id} 炮台${disabled ? '，已关闭' : ended ? '' : `，未来三步：${upcoming.map((fires) => (fires ? '射击' : '停火')).join('、')}`}`
+    } else if (crate) {
+      content = `<span class="crate-mark">${sprite('crate')}</span>`
+      name = '可推动的掩体'
+    } else if (tile === 'E') {
+      content = `<span class="exit-mark ${state.collected === requiredRelays(level) ? 'open' : ''}">${sprite(state.collected === requiredRelays(level) ? 'exitOpen' : 'exit')}</span><span class="tile-caption">出口</span>`
+      name = `出口，${state.collected === requiredRelays(level) ? '已开启' : '需要触发所有开关'}`
+    } else if (relay >= 0) {
+      content = `<span class="relay-mark ${collected ? 'off' : ''}">${sprite(collected ? 'switchOn' : 'switch')}</span><span class="tile-caption">${tile.toUpperCase()}</span>`
+      name = `${tile.toUpperCase()} 开关${collected ? '，已触发' : ''}`
     }
+    if (player) {
+      content += `<span class="player-mark ${caught ? 'caught' : ''}">${sprite('player')}${caught ? '<span class="hit-mark">×</span>' : ''}</span>`
+      name += '，你在这里'
+    } else if (available)
+      content += `<span class="move-dot ${safe ? '' : 'risky'} ${tile === 'E' || relay >= 0 || crate ? 'corner' : ''}">${safe ? '' : '×'}</span>`
+    const edge =
+      position.x === 0 ||
+      position.y === 0 ||
+      position.x === level.map[0]!.length - 1 ||
+      position.y === level.map.length - 1
+    cell.className = `cell ${(position.x + position.y) % 2 ? 'shade' : ''} ${tile === '#' ? `wall ${edge ? 'outer-wall' : ''}` : ''} ${turret ? 'turret' : ''} ${crate ? 'crate' : ''} ${player ? 'is-player' : ''} ${danger ? 'danger' : ''} ${available ? 'reachable' : ''} ${available && !safe ? 'risky-move' : ''}`
+    cell.innerHTML = content
+    cell.tabIndex = player || (turret && !ended) ? 0 : -1
+    cell.title = turret && !ended ? '点按切换火力预览，不计步数' : ''
+    cell.setAttribute(
+      'aria-label',
+      `${position.y + 1} 行 ${position.x + 1} 列，${name}${turret && !ended ? '，可切换火力预览' : ''}${danger ? '，预览火线经过' : ''}${available ? (safe ? '，这一步可安全到达' : '，这一步会被击中') : ''}`
+    )
+    cell.setAttribute('aria-disabled', String(ended || (!player && !available && !turret)))
+  }
+  if (focusWasOnPlayer)
+    cells.find((cell) => cell.classList.contains('is-player'))?.focus({ preventScroll: true })
+  const layer = board.querySelector<SVGSVGElement>('.beam-layer')!
+  layer.innerHTML = beams
+    .map((beam) => {
+      const first = beam.cells[0],
+        last = beam.cells.at(-1)
+      if (!first || !last) return ''
+      const delta = DELTAS[beam.direction]
+      return `<path d="M ${first.x + 0.5 - delta.x * 0.45} ${first.y + 0.5 - delta.y * 0.45} L ${last.x + 0.5 + delta.x * 0.45} ${last.y + 0.5 + delta.y * 0.45}"/>`
+    })
+    .join('')
+  byId<HTMLButtonElement>('undo-button').disabled = history.length === 0
+  byId<HTMLButtonElement>('reset-button').disabled = history.length === 0
+  byId<HTMLButtonElement>('wait-button').disabled = ended
+  const unsafeWait = !ended && move(level, state, 'wait').state.status === 'caught'
+  byId('wait-button').classList.toggle('unsafe-wait', unsafeWait)
+  byId('wait-button').setAttribute('aria-label', unsafeWait ? '等待! 这一步会被击中' : '等待一步')
+  byId('wait-button').querySelector<HTMLElement>('.wait-warning')!.hidden = !unsafeWait
+  byId('wait-button').hidden = won
+  byId('next-button').hidden = !won
+  feedback.textContent = notice
+  feedback.classList.toggle('error', caught)
+  byId('result').hidden = !won
+  byId('board-instructions').hidden ||= won
+  document.querySelectorAll<HTMLButtonElement>('button[data-preview]').forEach((button) => {
+    button.disabled = ended
   })
-  return nearest
-}
-
-function moveWaypoint(index: number, pointer: Point): void {
-  const waypoint = route[index]
-  if (!waypoint) return
-  const xBounds: Record<number, [number, number]> = {
-    1: [0.16, 0.34],
-    2: [0.41, 0.59],
-    3: [0.66, 0.84]
+  if (won) {
+    byId('result-title').textContent = '已通关'
+    byId('result-copy').textContent =
+      state.turn <= level.par ? '已达最少步数。' : `最少 ${level.par} 步。`
+    byId('next-button').textContent = selected === LEVELS.length - 1 ? '选关' : '下一关'
   }
-  const [minX, maxX] = xBounds[index] ?? [waypoint.x, waypoint.x]
-  waypoint.x = clamp(pointer.x, minX, maxX)
-  waypoint.y = clamp(pointer.y, 0.13, 0.87)
-  rebuildDefense()
-  updateUI()
+  document
+    .querySelectorAll<HTMLButtonElement>('button[data-preview]')
+    .forEach((button) =>
+      button.setAttribute('aria-pressed', String(Number(button.dataset.preview) === preview))
+    )
+  byId('hint').textContent = level.hint
+  byId('hint').hidden = !hintOpen
+  byId('hint-button').setAttribute('aria-expanded', String(hintOpen))
 }
 
-canvas.addEventListener('pointerdown', (event) => {
-  if (phase !== 'planning') return
-  const index = nearestWaypoint(pointFromPointer(event))
-  if (index === null) return
-  draggedWaypoint = index
-  selectedWaypoint = index
-  canvas.setPointerCapture(event.pointerId)
-  moveWaypoint(index, pointFromPointer(event))
-  sounds.play('click')
-})
-
-canvas.addEventListener('pointermove', (event) => {
-  if (draggedWaypoint !== null) moveWaypoint(draggedWaypoint, pointFromPointer(event))
-})
-
-canvas.addEventListener('pointerup', (event) => {
-  if (draggedWaypoint === null) return
-  draggedWaypoint = null
-  canvas.releasePointerCapture(event.pointerId)
-})
-
-canvas.addEventListener('pointercancel', () => {
-  draggedWaypoint = null
-})
-
-canvas.addEventListener('keydown', (event) => {
-  if (
-    phase !== 'planning' ||
-    !['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(event.key)
-  )
+function act(action: Action): void {
+  const result = move(level, state, action)
+  if (!result.changed) {
+    if (result.reason === 'ended') return
+    announce(result.reason === 'crate' ? '方块后面没有空位。' : '这里不能走。')
     return
-  event.preventDefault()
-  const point = route[selectedWaypoint]
-  if (!point) return
-  const amount = event.shiftKey ? 0.04 : 0.015
-  const next = { ...point }
-  if (event.key === 'ArrowUp') next.y -= amount
-  if (event.key === 'ArrowDown') next.y += amount
-  if (event.key === 'ArrowLeft') next.x -= amount
-  if (event.key === 'ArrowRight') next.x += amount
-  moveWaypoint(selectedWaypoint, next)
+  }
+  history.push(state)
+  progress.attempt.push(action)
+  state = result.state
+  preview = 1
+  const messages = {
+    moved: '',
+    waited: '',
+    pushed: '',
+    relay: '',
+    caught: '被击中。可撤回上一步。',
+    won: ''
+  }
+  notice = messages[result.reason as keyof typeof messages] ?? ''
+  if (state.status === 'won') {
+    progress.best[level.id] = Math.min(progress.best[level.id] ?? Infinity, state.turn)
+  }
+  persist()
+  render()
+  if (state.status === 'won') byId('next-button').focus({ preventScroll: true })
+  else if (state.status === 'caught') byId('undo-button').focus({ preventScroll: true })
+}
+function undo(): void {
+  const previous = history.pop()
+  if (!previous) return
+  state = previous
+  progress.attempt.pop()
+  persist()
+  preview = 1
+  notice = ''
+  render()
+  cells.find((cell) => cell.classList.contains('is-player'))?.focus({ preventScroll: true })
+}
+function selectLevel(index: number): void {
+  selected = index
+  level = LEVELS[index]!
+  state = initialState(level)
+  history = []
+  progress.attempt = []
+  preview = 1
+  hintOpen = false
+  notice = ''
+  progress.selected = index
+  persist()
+  buildBoard()
+  render()
+}
+function openDialog(id: string, trigger = document.activeElement as HTMLElement | null): void {
+  dialogTrigger = trigger
+  if (id === 'levels-dialog') {
+    byId('level-list').innerHTML = LEVELS.map((item, index) => {
+      const best = progress.best[item.id]
+      return `<button class="level-choice ${index === selected ? 'selected' : ''}" type="button" data-level="${index}" title="${item.title}" aria-label="${index + 1}${best ? ` ${best} 步` : ''}，${item.title}" ${index === selected ? 'aria-current="true"' : ''}><span class="level-index">${index + 1}</span><span class="level-record" aria-label="${best ? (best <= item.par ? '已找到最短解' : '已通关') : '未通关'}">${best ? `${best} 步` : ''}</span></button>`
+    }).join('')
+    byId('level-list')
+      .querySelectorAll<HTMLButtonElement>('[data-level]')
+      .forEach((button) =>
+        button.addEventListener('click', () => {
+          selectLevel(Number(button.dataset.level))
+          byId<HTMLDialogElement>(id).close()
+        })
+      )
+  }
+  byId<HTMLDialogElement>(id).showModal()
+  byId(id).querySelector<HTMLButtonElement>('button')?.focus()
+}
+byId('undo-button').addEventListener('click', undo)
+byId('wait-button').addEventListener('click', () => act('wait'))
+byId('reset-button').addEventListener('click', () => {
+  selectLevel(selected)
+  byId<HTMLDialogElement>('help-dialog').close()
 })
-
-ui.market.addEventListener('click', (event) => {
-  const button = (event.target as HTMLElement).closest<HTMLButtonElement>('[data-unit]')
-  if (button?.dataset.unit) addBatch(button.dataset.unit as UnitKind)
-})
-
-ui.queue.addEventListener('click', (event) => {
-  const button = (event.target as HTMLElement).closest<HTMLButtonElement>('[data-remove-batch]')
-  const id = Number(button?.dataset.removeBatch)
-  if (Number.isFinite(id)) removeBatch(id)
-})
-
-ui.launch.addEventListener('click', launchWave)
-ui.continueButton.addEventListener('click', advanceRound)
-
-byId<HTMLButtonElement>('reset-button').addEventListener('click', () => {
-  resetGame()
-  ui.summary.classList.remove('open')
-  ui.summary.setAttribute('aria-hidden', 'true')
-  showToast('入侵已重置', 'neutral')
-  sounds.play('click')
-})
-
-ui.speed.addEventListener('click', () => {
-  speed = speed === 1 ? 2 : 1
-  ui.speed.textContent = `${speed}×`
-  showToast(`战斗速度 ${speed}×`)
-  sounds.play('click')
-})
-
-ui.sound.addEventListener('click', () => {
-  soundEnabled = !soundEnabled
-  ui.sound.setAttribute('aria-pressed', soundEnabled.toString())
-  ui.sound.setAttribute('aria-label', soundEnabled ? '关闭音效' : '开启音效')
-  ui.sound.classList.toggle('muted', !soundEnabled)
-  if (soundEnabled) sounds.play('click')
-})
-
-window.addEventListener('keydown', (event) => {
-  if (event.code === 'Space' && phase === 'planning') {
-    event.preventDefault()
-    launchWave()
+byId('next-button').addEventListener('click', () => {
+  if (selected === LEVELS.length - 1) openDialog('levels-dialog')
+  else {
+    selectLevel(selected + 1)
+    board.scrollIntoView({ block: 'nearest' })
+    cells.find((cell) => cell.classList.contains('is-player'))?.focus({ preventScroll: true })
   }
 })
-
-window.addEventListener('resize', resizeCanvas)
-
-rebuildDefense()
-updateUI()
-resizeCanvas()
-requestAnimationFrame(frame)
+byId('levels-button').addEventListener('click', () =>
+  openDialog('levels-dialog', byId('levels-button'))
+)
+byId('help-button').addEventListener('click', () => openDialog('help-dialog', byId('help-button')))
+byId('theme-button').addEventListener('click', () => {
+  progress.theme = progress.theme === 'light' ? 'dark' : 'light'
+  setTheme()
+  persist()
+})
+byId('hint-button').addEventListener('click', () => {
+  hintOpen = !hintOpen
+  render()
+})
+document.querySelectorAll<HTMLButtonElement>('button[data-preview]').forEach((button) =>
+  button.addEventListener('click', () => {
+    preview = Number(button.dataset.preview)
+    notice = ''
+    render()
+    byId<HTMLDialogElement>('help-dialog').close()
+  })
+)
+document
+  .querySelectorAll<HTMLButtonElement>('[data-close]')
+  .forEach((button) =>
+    button.addEventListener('click', () => byId<HTMLDialogElement>(button.dataset.close!).close())
+  )
+document.querySelectorAll<HTMLDialogElement>('dialog').forEach((dialog) => {
+  dialog.addEventListener('close', () => dialogTrigger?.focus({ preventScroll: true }))
+  dialog.addEventListener('keydown', (event) => {
+    if (event.key !== 'Tab') return
+    const buttons = [...dialog.querySelectorAll<HTMLElement>('button:not(:disabled), summary')]
+    if (!buttons.length) return
+    const index = buttons.indexOf(document.activeElement as HTMLElement)
+    const next = (index + (event.shiftKey ? -1 : 1) + buttons.length) % buttons.length
+    event.preventDefault()
+    buttons[next]?.focus()
+  })
+  dialog.addEventListener('click', (event) => {
+    if (event.target !== dialog) return
+    const bounds = dialog.getBoundingClientRect()
+    if (
+      event.clientX < bounds.left ||
+      event.clientX > bounds.right ||
+      event.clientY < bounds.top ||
+      event.clientY > bounds.bottom
+    )
+      dialog.close()
+  })
+})
+window.addEventListener('keydown', (event) => {
+  if (document.querySelector('dialog[open]') || event.altKey || event.ctrlKey || event.metaKey)
+    return
+  const actions: Record<string, Action> = {
+    ArrowUp: 'up',
+    ArrowRight: 'right',
+    ArrowDown: 'down',
+    ArrowLeft: 'left',
+    w: 'up',
+    d: 'right',
+    s: 'down',
+    a: 'left'
+  }
+  const key = event.key.length === 1 ? event.key.toLowerCase() : event.key
+  if (event.repeat) {
+    if (actions[key] || key === ' ') event.preventDefault()
+    return
+  }
+  if (actions[key]) {
+    event.preventDefault()
+    act(actions[key])
+  } else if (
+    key === ' ' &&
+    (document.activeElement === document.body ||
+      (document.activeElement?.classList.contains('cell') &&
+        !document.activeElement.classList.contains('turret')))
+  ) {
+    event.preventDefault()
+    act('wait')
+  } else if (key === 'z' || key === 'Backspace') {
+    event.preventDefault()
+    undo()
+  } else if (key === 'r') {
+    event.preventDefault()
+    selectLevel(selected)
+  }
+})
+let touchStart: { x: number; y: number } | null = null
+let suppressClick = false
+board.addEventListener('pointerdown', (event) => {
+  suppressClick = false
+  if (event.pointerType === 'touch') touchStart = { x: event.clientX, y: event.clientY }
+})
+board.addEventListener('pointerup', (event) => {
+  if (!touchStart) return
+  const dx = event.clientX - touchStart.x,
+    dy = event.clientY - touchStart.y
+  touchStart = null
+  if (Math.max(Math.abs(dx), Math.abs(dy)) < 24) return
+  suppressClick = true
+  act(Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 'right' : 'left') : dy > 0 ? 'down' : 'up')
+})
+board.addEventListener('pointercancel', () => {
+  touchStart = null
+})
+setTheme()
+buildBoard()
+render()
